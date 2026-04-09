@@ -125,3 +125,13 @@ exports.getMyRides = async (req, res) => {
     res.status(500).json({ error: 'Server error fetching rides' });
   }
 };
+
+// Get rides
+exports.getRides = async (req, res) => {
+  try {
+    const rides = await Ride.find().populate("driver", "name email");
+    res.json({ rides });
+  } catch (error) {
+    res.status(500).json({ error: "Error fetching rides" });
+  }
+};
