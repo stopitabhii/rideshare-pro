@@ -12,7 +12,10 @@ const server = http.createServer(app);  // ← NEW: Create HTTP server
 // ← NEW: Initialize Socket.io with CORS
 const io = socketIo(server, {
   cors: {
-    origin: "*",  // Frontend URL
+    origin: [
+      "http://localhost:3000",
+      "https://rideshare-pro.vercel.app"
+    ],
     methods: ["GET", "POST"],
     credentials: true
   }
