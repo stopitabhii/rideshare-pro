@@ -82,6 +82,12 @@ exports.bookRide = async (req, res) => {
     ride.bookings.push(userId);
     await ride.save();
 
+    const io = req.app.get('io');
+
+    io.emit('ride-updated', {
+      rideId: ride._id
+    });
+
     // Calculate and update carbon saved
     const carbonSaved = calculateCarbonSaved(ride.distance, 1, ride.type === 'bikepool' ? 'bike' : 'car');
     await User.findByIdAndUpdate(userId, {

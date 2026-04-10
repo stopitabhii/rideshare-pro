@@ -18,6 +18,8 @@ const io = socketIo(server, {
   }
 });
 
+app.set('io', io);
+
 // Connect to MongoDB
 connectDB();
 
