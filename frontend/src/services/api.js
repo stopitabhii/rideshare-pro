@@ -1,7 +1,8 @@
 import axios from "axios";
 
 const API = axios.create({
-  baseURL: "https://rideshare-pro.onrender.com/api"
+  baseURL: "https://rideshare-pro.onrender.com/api",
+  timeout: 20000
 });
 
 API.interceptors.request.use((req) => {
