@@ -17,7 +17,9 @@ export default function Signup() {
       localStorage.setItem("token", res.data.token);
       alert("Signup successful");
     } catch (err) {
-      console.log(err);
+        setError(
+            err.response?.data?.error || errr.message
+        );
     }
   };
 
