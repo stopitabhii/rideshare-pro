@@ -27,7 +27,16 @@ app.set('io', io);
 connectDB();
 
 // Middleware 
-app.use(cors()); 
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "https://rideshare-pro.vercel.app"
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
+}
+
+)); 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
