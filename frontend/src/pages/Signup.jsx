@@ -31,10 +31,11 @@ export default function Signup() {
   };
 
   return (
-    <div>
+    <form onSubmit={handleSubmit}>
       <input placeholder="Name" onChange={e => setForm({...form, name: e.target.value})}/>
       <input placeholder="Phone" onChange={e => setForm({...form, phone: e.target.value})}/>
       <input placeholder="Organization" onChange={e => setForm({...form, organization: e.target.value})}/>
+
       <select onChange={e => setForm({...form, role: e.target.value})}>
       <option value="rider">Rider</option>
       <option value="driver">Driver</option>
@@ -43,9 +44,9 @@ export default function Signup() {
       <input placeholder="Email" onChange={e => setForm({...form, email: e.target.value})}/>
       <input placeholder="Password" onChange={e => setForm({...form, password: e.target.value})}/>
 
-      <button onClick={handleSubmit}>Signup</button>
+      <button type="submit">Signup</button>
 
       {error && <p style={{ color: "red" }}>{error}</p>}
-    </div>
+    </form>
   );
 }
