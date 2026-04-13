@@ -18,13 +18,15 @@ export default function Signup() {
 
     try {
       console.log(form);
-      
+
       const res = await API.post("/auth/register", form);
       localStorage.setItem("token", res.data.token);
       alert("Signup successful");
     } catch (err) {
-        console.log(err.response?.data);
-      setError(err.response?.data?.error || err.message);
+        console.log("Full Error:", err);
+
+        const backendMessage = err.response?.data?.error || err.response?.data?.message;
+      setError(backendMessage || "Signup failed");
     }
   };
 
