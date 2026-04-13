@@ -1,25 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Car, Bike, MapPin, Users, Leaf, Star, Clock, Shield, Search, Plus, Bell, LogOut, Menu, X, TrendingUp, Award, Calendar, IndianRupee } from 'lucide-react';
-import axios from 'axios';
-
-// API Configuration
-const API_URL = 'http://localhost:5001/api';
-
-const api = axios.create({
-  baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Add token to requests
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 const App = () => {
   const [currentUser, setCurrentUser] = useState(null);
