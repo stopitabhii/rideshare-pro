@@ -1,6 +1,6 @@
 {
   "name": "rideshare-backend",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "RideShare Backend API",
   "main": "server.js",
   "scripts": {
@@ -15,12 +15,16 @@
     "nodemon": "^3.1.11"
   },
   "dependencies": {
+    "axios": "^1.7.9",
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.5.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.5",
-    "socket.io": "^4.8.3"
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.8.3",
+    "streamifier": "^0.1.1"
   }
 }

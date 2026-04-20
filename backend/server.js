@@ -1,67 +1,58 @@
 const dotenv = require('dotenv');
 dotenv.config();
 const express = require('express');
-const http = require('http');  // ← NEW: For Socket.io
-const socketIo = require('socket.io');  // ← NEW: WebSocket support
+const http = require('http');
+const socketIo = require('socket.io');
 const cors = require('cors');
 const connectDB = require('./config/db');
 
 const app = express();
-const server = http.createServer(app);  // ← NEW: Create HTTP server
+const server = http.createServer(app);
 
-// ← NEW: Initialize Socket.io with CORS
 const io = socketIo(server, {
   cors: {
     origin: [
-      "http://localhost:3000",
-      "https://rideshare-pro.vercel.app"
+      'http://localhost:3000',
+      'https://rideshare-pro.vercel.app'
     ],
-    methods: ["GET", "POST"],
+    methods: ['GET', 'POST'],
     credentials: true
   }
 });
 
 app.set('io', io);
 
-// Connect to MongoDB
 connectDB();
 
-// Middleware 
 app.use(cors({
   origin: [
-    "http://localhost:3000",
-    "https://rideshare-pro.vercel.app"
+    'http://localhost:3000',
+    'https://rideshare-pro.vercel.app'
   ],
-  methods: ["GET", "POST", "PUT", "DELETE"],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
-}
+}));
 
-)); 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
+// ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/rides', require('./routes/rides'));
+app.use('/api/reviews', require('./routes/reviews'));
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ message: '🚗 RideShare API is running!' });
+  res.json({ message: 'RideShare API is running!', version: '2.0.0' });
 });
 
-// ========== SOCKET.IO REAL-TIME FEATURES ==========
-
+// ─── Socket.IO ────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
-  console.log('✅ User connected:', socket.id);
+  console.log('User connected:', socket.id);
 
-  // ========== LIVE GPS TRACKING ==========
-  
-  // Driver shares location
+  // ── GPS Tracking ──────────────────────────────────────────────────────────
   socket.on('share-location', (data) => {
     const { rideId, latitude, longitude, driverId, driverName } = data;
-    console.log(`📍 Location update from ${driverName}:`, { latitude, longitude });
-    
-    // Broadcast to all users in this ride
     io.to(rideId).emit('location-update', {
       driverId,
       driverName,
@@ -71,72 +62,49 @@ io.on('connection', (socket) => {
     });
   });
 
-  // User joins a ride room for tracking
   socket.on('join-ride-tracking', (rideId) => {
     socket.join(rideId);
-    console.log(`👤 User ${socket.id} joined ride tracking: ${rideId}`);
-    
-    // Notify others in the room
     socket.to(rideId).emit('user-joined-tracking', {
       userId: socket.id,
       timestamp: new Date().toISOString()
     });
   });
 
-  // User leaves ride tracking
   socket.on('leave-ride-tracking', (rideId) => {
     socket.leave(rideId);
-    console.log(`👋 User ${socket.id} left ride tracking: ${rideId}`);
   });
 
-  // ========== IN-APP CHAT ==========
-  
-  // Join chat room
+  // ── In-App Chat ───────────────────────────────────────────────────────────
   socket.on('join-chat', (rideId) => {
     socket.join(`chat_${rideId}`);
-    console.log(`💬 User ${socket.id} joined chat: ${rideId}`);
-    
-    // Notify others
     socket.to(`chat_${rideId}`).emit('user-joined-chat', {
       userId: socket.id,
       timestamp: new Date().toISOString()
     });
   });
 
-  // Send message
   socket.on('send-message', (message) => {
     const { rideId, senderId, senderName, text } = message;
-    
-    const formattedMessage = {
+    const formatted = {
       messageId: Date.now().toString(),
       senderId,
       senderName,
       text,
       timestamp: new Date().toISOString()
     };
-    
-    console.log(`💬 Message in ride ${rideId} from ${senderName}: ${text}`);
-    
-    // Broadcast to all users in this chat room
-    io.to(`chat_${rideId}`).emit('new-message', formattedMessage);
+    io.to(`chat_${rideId}`).emit('new-message', formatted);
   });
 
-  // Typing indicator
-  socket.on('typing', (data) => {
-    const { rideId, userName } = data;
+  socket.on('typing', ({ rideId, userName }) => {
     socket.to(`chat_${rideId}`).emit('user-typing', { userName });
   });
 
-  socket.on('stop-typing', (data) => {
-    const { rideId } = data;
+  socket.on('stop-typing', ({ rideId }) => {
     socket.to(`chat_${rideId}`).emit('user-stopped-typing');
   });
 
-  // ========== RIDE STATUS UPDATES ==========
-  
-  // Ride started
-  socket.on('ride-started', (data) => {
-    const { rideId, driverName } = data;
+  // ── Ride Status ───────────────────────────────────────────────────────────
+  socket.on('ride-started', ({ rideId, driverName }) => {
     io.to(rideId).emit('ride-status-update', {
       status: 'ongoing',
       message: `${driverName} has started the ride`,
@@ -144,89 +112,75 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Ride completed
-  socket.on('ride-completed', (data) => {
-    const { rideId } = data;
+  socket.on('ride-completed', ({ rideId }) => {
     io.to(rideId).emit('ride-status-update', {
       status: 'completed',
-      message: 'Ride completed successfully!',
+      message: 'Ride completed! Please rate your experience.',
       timestamp: new Date().toISOString()
     });
   });
 
-  // ========== EMERGENCY SOS ==========
-  
+  // ── Emergency SOS ─────────────────────────────────────────────────────────
   socket.on('emergency-sos', (data) => {
     const { rideId, userId, userName, latitude, longitude } = data;
-    
-    console.log(`🚨 EMERGENCY SOS from ${userName} at`, { latitude, longitude });
-    
-    // Alert all users in the ride
+    console.error(`EMERGENCY SOS from ${userName} at`, { latitude, longitude });
+
     io.to(rideId).emit('sos-alert', {
       userId,
       userName,
       latitude,
       longitude,
       timestamp: new Date().toISOString(),
-      message: `🚨 EMERGENCY: ${userName} triggered SOS`
+      message: `EMERGENCY: ${userName} triggered SOS`
     });
-    
-    // Also alert admin/platform (you can add admin room)
-    io.emit('admin-sos-alert', {
-      rideId,
-      userId,
-      userName,
-      latitude,
-      longitude,
+
+    // Broadcast to admin monitoring room
+    io.to('admin-room').emit('admin-sos-alert', {
+      rideId, userId, userName, latitude, longitude,
       timestamp: new Date().toISOString()
     });
   });
 
-  // ========== NOTIFICATIONS ==========
-  
-  // New booking notification
-  socket.on('notify-booking', (data) => {
-    const { driverId, passengerName, rideDetails } = data;
-    
-    // Send to specific driver
-    io.to(`user_${driverId}`).emit('booking-notification', {
-      title: '🚗 New Booking!',
-      message: `${passengerName} booked your ride`,
-      rideDetails,
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // User-specific room (for personal notifications)
+  // ── Notifications ─────────────────────────────────────────────────────────
   socket.on('join-user-room', (userId) => {
     socket.join(`user_${userId}`);
-    console.log(`👤 User ${userId} joined personal notification room`);
   });
 
-  // ========== DISCONNECT ==========
-  
+  socket.on('join-admin-room', (secret) => {
+    if (secret === process.env.ADMIN_SECRET) {
+      socket.join('admin-room');
+      console.log('Admin joined monitoring room');
+    }
+  });
+
   socket.on('disconnect', () => {
-    console.log('❌ User disconnected:', socket.id);
+    console.log('User disconnected:', socket.id);
   });
 });
 
-// Error handling
+// ─── Error handler ────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ error: err.message });
+  // Handle multer errors
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
+  }
+  res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 5001;
-
-// ← IMPORTANT: Use server.listen instead of app.listen
 server.listen(PORT, () => {
-  console.log(`\n🚀 Server running on port ${PORT}`);
-  console.log(`📍 HTTP: http://localhost:${PORT}`);
-  console.log(`🔌 WebSocket: ws://localhost:${PORT}\n`);
-  console.log('✅ Features enabled:');
-  console.log('   - Live GPS Tracking');
-  console.log('   - In-App Chat');
-  console.log('   - Real-time Notifications');
-  console.log('   - Emergency SOS');
+  console.log(`\nServer running on port ${PORT}`);
+  console.log(`HTTP: http://localhost:${PORT}`);
+  console.log(`WebSocket: ws://localhost:${PORT}\n`);
+  console.log('Features active:');
+  console.log('  - ID Verification (Cloudinary)');
+  console.log('  - Ratings & Reviews');
+  console.log('  - Cancel Booking / Ride');
+  console.log('  - Auto Distance (Google Maps)');
+  console.log('  - Org Leaderboard');
+  console.log('  - Live GPS Tracking');
+  console.log('  - In-App Chat');
+  console.log('  - Emergency SOS');
   console.log('');
 });
