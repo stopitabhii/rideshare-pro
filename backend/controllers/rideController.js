@@ -10,7 +10,14 @@ async function getDistanceFromMaps(from, to) {
     const geocode = async (address) => {
       const { data } = await axios.get(
         `https://api.openrouteservice.org/geocode/search`,
-        { params: { api_key: process.env.ORS_API_KEY, text: address, size: 1 } }
+        { 
+          params: { 
+            api_key: process.env.ORS_API_KEY, 
+            text: `${address}, Noida, Uttar Pradesh, India`,  // ← add this
+            size: 1,
+            'boundary.country': 'IND'  // ← restrict to India
+          } 
+        }
       );
       const coords = data?.features?.[0]?.geometry?.coordinates;
       return coords ? [coords[0], coords[1]] : null;
