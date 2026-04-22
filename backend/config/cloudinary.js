@@ -46,8 +46,9 @@ function getSignedUrl(publicId) {
   return cloudinary.url(publicId, {
     secure: true,
     sign_url: true,
+    type: 'authenticated',
     expires_at: Math.floor(Date.now() / 1000) + 3600,
-    type: 'authenticated'
+    resource_type: 'image'
   });
 }
 
