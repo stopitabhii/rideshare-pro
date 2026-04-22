@@ -29,7 +29,7 @@ function uploadToCloudinary(buffer, options = {}) {
       {
         folder: 'rideshare/id-cards',
         resource_type: 'auto',
-        access_mode: 'authenticated', // private — no direct public URL
+        access_mode: 'public', 
         ...options
       },
       (error, result) => {
@@ -45,9 +45,6 @@ function uploadToCloudinary(buffer, options = {}) {
 function getSignedUrl(publicId) {
   return cloudinary.url(publicId, {
     secure: true,
-    sign_url: true,
-    type: 'authenticated',
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
     resource_type: 'image'
   });
 }
