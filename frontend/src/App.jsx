@@ -394,7 +394,7 @@ const FindRides = ({ rides, filters, setFilters, loadRides, showNotification, lo
       </div>
     ) : (
       rides.map(ride => (
-        <RideCard
+        <MyRideCard
           key={ride._id}
           ride={ride}
           onBook={onBook}
