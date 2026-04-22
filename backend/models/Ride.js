@@ -6,52 +6,61 @@ const rideSchema = new mongoose.Schema({
   from: { type: String, required: true },
   to: { type: String, required: true },
 
-  // Phase 1: Auto-calculated via Maps API
-  fromCoords: {
-    lat: { type: Number },
-    lng: { type: Number }
-  },
-  toCoords: {
-    lat: { type: Number },
-    lng: { type: Number }
-  },
+  fromCoords: { lat: Number, lng: Number },
+  toCoords:   { lat: Number, lng: Number },
 
-  date: { type: Date, required: true },
-  time: { type: String, required: true },
-  seats: { type: Number, required: true },
-  price: { type: Number, required: true },
+  date:     { type: Date,   required: true },
+  time:     { type: String, required: true },
+  seats:    { type: Number, required: true },
+  price:    { type: Number, required: true },
   distance: { type: Number, required: true },
   duration: { type: Number, default: null }, // minutes, from Maps API
 
-  recurring: { type: Boolean, default: false },
-  days: [{ type: String, enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] }],
-  helmetProvided: { type: Boolean, default: false },
+  recurring:       { type: Boolean, default: false },
+  days:            [{ type: String, enum: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] }],
+  helmetProvided:  { type: Boolean, default: false },
+
+  // public  → any verified org-member can book instantly
+  // private → passengers must REQUEST; driver approves/declines
+  visibility: {
+    type: String,
+    enum: ['public', 'private'],
+    default: 'public',
+  },
 
   status: {
     type: String,
     enum: ['scheduled', 'ongoing', 'completed', 'cancelled'],
-    default: 'scheduled'
+    default: 'scheduled',
   },
 
   bookings: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 
-  // Phase 1: Cancellation tracking
-  cancelledBookings: [
+  // Private-ride request queue
+  pendingBookings: [
     {
-      user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-      cancelledAt: { type: Date, default: Date.now },
-      reason: { type: String, default: '' }
+      user:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      requestedAt: { type: Date, default: Date.now },
+      message:     { type: String, default: '' },
     }
   ],
 
-  // Driver cancellation
-  cancelledAt: { type: Date, default: null },
+  // Cancellation tracking
+  cancelledBookings: [
+    {
+      user:        { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      cancelledAt: { type: Date, default: Date.now },
+      reason:      { type: String, default: '' },
+    }
+  ],
+
+  cancelledAt:  { type: Date,   default: null },
   cancelReason: { type: String, default: '' },
 
-  // Phase 1: Review tracking — who has reviewed after this ride
+  // Review tracking
   reviewsGiven: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
 });
 
 module.exports = mongoose.model('Ride', rideSchema);

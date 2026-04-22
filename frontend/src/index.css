@@ -3,31 +3,66 @@
 @tailwind utilities;
 
 @layer utilities {
+  /* Animations */
   .animate-fade-in {
-    animation: fadeIn 0.8s ease-in;
+    animation: fadeIn 0.6s ease-out both;
   }
-  
-  .animate-slide-in {
-    animation: slideIn 0.3s ease-out;
+
+  .animate-slide-down {
+    animation: slideDown 0.3s ease-out both;
   }
-  
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out both;
+  }
+
   @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
-  
-  @keyframes slideIn {
-    from {
-      transform: translateX(100%);
-    }
-    to {
-      transform: translateX(0);
-    }
+
+  @keyframes slideDown {
+    from { opacity: 0; transform: translate(-50%, -12px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
   }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* iOS safe area support */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Native-feel scrollbars */
+* {
+  -webkit-overflow-scrolling: touch;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 2px;
+}
+
+/* Date/time input styling for dark theme */
+input[type="date"],
+input[type="time"] {
+  color-scheme: dark;
 }
