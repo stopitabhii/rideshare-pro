@@ -4,38 +4,40 @@ const User   = require('../models/User');
 const Review = require('../models/Review');
 const { calculateCarbonSaved } = require('../utils/carbon');
 
-// ─── Helper: Google Maps distance ────────────────────────────────────────────
 async function getDistanceFromMaps(from, to) {
   try {
-    const key = process.env.GOOGLE_MAPS_KEY;
-    if (!key) throw new Error('No Maps key');
-    const { data } = await axios.get('https://maps.googleapis.com/maps/api/distancematrix/json', {
-      params: { origins: from, destinations: to, units: 'metric', key }
-    });
-    const el = data?.rows?.[0]?.elements?.[0];
-    if (!el || el.status !== 'OK') throw new Error('Maps returned no result');
+    // Geocode both addresses first
+    const geocode = async (address) => {
+      const { data } = await axios.get(
+        `https://api.openrouteservice.org/geocode/search`,
+        { params: { api_key: process.env.ORS_API_KEY, text: address, size: 1 } }
+      );
+      const coords = data?.features?.[0]?.geometry?.coordinates;
+      return coords ? [coords[0], coords[1]] : null;
+    };
+
+    const [fromCoords, toCoords] = await Promise.all([geocode(from), geocode(to)]);
+    if (!fromCoords || !toCoords) throw new Error('Geocoding failed');
+
+    const { data } = await axios.post(
+      'https://api.openrouteservice.org/v2/directions/driving-car',
+      { coordinates: [fromCoords, toCoords] },
+      { headers: { Authorization: process.env.ORS_API_KEY } }
+    );
+
+    const summary = data?.routes?.[0]?.summary;
+    if (!summary) throw new Error('No route found');
+
     return {
-      distance: parseFloat((el.distance.value / 1000).toFixed(1)),
-      duration: Math.ceil(el.duration.value / 60),
-      fromFormatted: data.origin_addresses?.[0] || from,
-      toFormatted:   data.destination_addresses?.[0] || to,
+      distance: parseFloat((summary.distance / 1000).toFixed(1)),
+      duration: Math.ceil(summary.duration / 60),
+      fromFormatted: from,
+      toFormatted: to,
     };
   } catch (err) {
-    console.warn('Maps distance fallback:', err.message);
+    console.warn('ORS distance fallback:', err.message);
     return null;
   }
-}
-
-async function geocodeAddress(address) {
-  try {
-    const key = process.env.GOOGLE_MAPS_KEY;
-    if (!key) return null;
-    const { data } = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
-      params: { address, key }
-    });
-    const loc = data?.results?.[0]?.geometry?.location;
-    return loc ? { lat: loc.lat, lng: loc.lng } : null;
-  } catch { return null; }
 }
 
 // ─── Create ride ──────────────────────────────────────────────────────────────
