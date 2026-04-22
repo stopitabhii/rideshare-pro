@@ -48,7 +48,8 @@ function getSignedUrl(publicId) {
     sign_url: true,
     type: 'authenticated',
     expires_at: Math.floor(Date.now() / 1000) + 3600,
-    resource_type: 'image'
+    resource_type: 'image',
+     format: 'jpg'
   });
 }
 
