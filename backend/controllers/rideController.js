@@ -1,50 +1,92 @@
 const axios = require('axios');
 const Ride   = require('../models/Ride');
 const User   = require('../models/User');
-const Review = require('../models/Review');
 const { calculateCarbonSaved } = require('../utils/carbon');
 
-async function getDistanceFromMaps(from, to) {
+const ORS_KEY = process.env.ORS_API_KEY;   // set in your .env  →  ORS_API_KEY=your_key_here
+const ORS_BASE = 'https://api.openrouteservice.org';
+
+// ─── Geocode a text address → [lng, lat] via ORS Pelias ──────────────────────
+async function geocodeORS(text) {
   try {
-    // Geocode both addresses first
-    const geocode = async (address) => {
-      const { data } = await axios.get(
-        `https://api.openrouteservice.org/geocode/search`,
-        { 
-          params: { 
-            api_key: process.env.ORS_API_KEY, 
-            text: `${address}, Noida, Uttar Pradesh, India`,  // ← add this
-            size: 1,
-            'boundary.country': 'IND'  // ← restrict to India
-          } 
-        }
-      );
-      const coords = data?.features?.[0]?.geometry?.coordinates;
-      return coords ? [coords[0], coords[1]] : null;
-    };
+    const { data } = await axios.get(`${ORS_BASE}/geocode/search`, {
+      params: {
+        api_key:          ORS_KEY,
+        text:             text,
+        'boundary.country': 'IND',
+        size:             1,
+      },
+      timeout: 6000,
+    });
+    const coords = data?.features?.[0]?.geometry?.coordinates; // [lng, lat]
+    if (!coords) return null;
+    return { lng: coords[0], lat: coords[1] };
+  } catch (err) {
+    console.warn('ORS geocode error:', err.message);
+    return null;
+  }
+}
 
-    const [fromCoords, toCoords] = await Promise.all([geocode(from), geocode(to)]);
-    if (!fromCoords || !toCoords) throw new Error('Geocoding failed');
-
+// ─── Get driving distance + duration via ORS Directions ──────────────────────
+async function getDistanceORS(fromCoords, toCoords) {
+  try {
+    // ORS directions expects [lng, lat] pairs
     const { data } = await axios.post(
-      'https://api.openrouteservice.org/v2/directions/driving-car',
-      { coordinates: [fromCoords, toCoords] },
-      { headers: { Authorization: process.env.ORS_API_KEY } }
+      `${ORS_BASE}/v2/directions/driving-car`,
+      {
+        coordinates: [
+          [fromCoords.lng, fromCoords.lat],
+          [toCoords.lng,   toCoords.lat],
+        ],
+      },
+      {
+        headers: {
+          Authorization: ORS_KEY,
+          'Content-Type': 'application/json',
+        },
+        timeout: 8000,
+      }
     );
 
     const summary = data?.routes?.[0]?.summary;
-    if (!summary) throw new Error('No route found');
+    if (!summary) return null;
 
     return {
-      distance: parseFloat((summary.distance / 1000).toFixed(1)),
-      duration: Math.ceil(summary.duration / 60),
-      fromFormatted: from,
-      toFormatted: to,
+      distance: parseFloat((summary.distance / 1000).toFixed(1)), // metres → km
+      duration: Math.ceil(summary.duration / 60),                  // seconds → minutes
     };
   } catch (err) {
-    console.warn('ORS distance fallback:', err.message);
+    console.warn('ORS directions error:', err.response?.data?.error?.message || err.message);
     return null;
   }
+}
+
+// ─── Master: geocode both ends → get driving distance ────────────────────────
+async function getDistanceFromORS(from, to) {
+  if (!ORS_KEY) {
+    console.warn('ORS_API_KEY not set in .env');
+    return null;
+  }
+
+  const [fromCoords, toCoords] = await Promise.all([
+    geocodeORS(from),
+    geocodeORS(to),
+  ]);
+
+  if (!fromCoords) { console.warn('Could not geocode FROM:', from); return null; }
+  if (!toCoords)   { console.warn('Could not geocode TO:',   to);   return null; }
+
+  const result = await getDistanceORS(fromCoords, toCoords);
+  if (!result) return null;
+
+  return {
+    distance:   result.distance,
+    duration:   result.duration,
+    fromCoords: { lat: fromCoords.lat, lng: fromCoords.lng },
+    toCoords:   { lat: toCoords.lat,   lng: toCoords.lng   },
+    fromFormatted: from,
+    toFormatted:   to,
+  };
 }
 
 // ─── Create ride ──────────────────────────────────────────────────────────────
@@ -54,27 +96,24 @@ exports.createRide = async (req, res) => {
     if (user.verificationStatus !== 'verified') {
       return res.status(403).json({
         error: 'Account not verified. Please upload your organisation ID card first.',
-        verificationStatus: user.verificationStatus
+        verificationStatus: user.verificationStatus,
       });
     }
 
     const rideData = { ...req.body, driver: req.userId };
 
-    const mapsResult = await getDistanceFromMaps(rideData.from, rideData.to);
-    if (mapsResult) {
-      rideData.distance = mapsResult.distance;
-      rideData.duration = mapsResult.duration;
+    // Auto-calculate via ORS; fall back to manually entered distance if API fails
+    const orsResult = await getDistanceFromORS(rideData.from, rideData.to);
+    if (orsResult) {
+      rideData.distance   = orsResult.distance;
+      rideData.duration   = orsResult.duration;
+      rideData.fromCoords = orsResult.fromCoords;
+      rideData.toCoords   = orsResult.toCoords;
+    } else if (!rideData.distance) {
+      return res.status(400).json({
+        error: 'Could not calculate distance. Please enter it manually.',
+      });
     }
-    if (!rideData.distance) {
-      return res.status(400).json({ error: 'Could not calculate distance. Please enter it manually.' });
-    }
-
-    const [fromCoords, toCoords] = await Promise.all([
-      geocodeAddress(rideData.from),
-      geocodeAddress(rideData.to),
-    ]);
-    if (fromCoords) rideData.fromCoords = fromCoords;
-    if (toCoords)   rideData.toCoords   = toCoords;
 
     const ride = new Ride(rideData);
     await ride.save();
@@ -87,13 +126,18 @@ exports.createRide = async (req, res) => {
   }
 };
 
-// ─── Distance estimate ────────────────────────────────────────────────────────
+// ─── Distance estimate (called by frontend "Auto-calculate" button) ───────────
 exports.getDistanceEstimate = async (req, res) => {
   try {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
-    const result = await getDistanceFromMaps(from, to);
-    if (!result) return res.status(422).json({ error: 'Could not calculate distance for these locations' });
+
+    const result = await getDistanceFromORS(from, to);
+    if (!result) {
+      return res.status(422).json({
+        error: 'Could not calculate distance. Try adding the city name (e.g. "Mahagun Mantra 1, Noida").',
+      });
+    }
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: 'Failed to calculate distance' });
@@ -121,7 +165,7 @@ exports.searchRides = async (req, res) => {
     }
 
     const enriched = rides
-      .map(ride => ({ ...ride.toObject(), availableSeats: ride.seats - ride.bookings.length }))
+      .map(r => ({ ...r.toObject(), availableSeats: r.seats - r.bookings.length }))
       .filter(r => r.availableSeats > 0);
 
     res.json({ rides: enriched });
@@ -130,28 +174,25 @@ exports.searchRides = async (req, res) => {
   }
 };
 
-// ─── Book ride (public — instant) ────────────────────────────────────────────
+// ─── Book ride (public) ───────────────────────────────────────────────────────
 exports.bookRide = async (req, res) => {
   try {
     const { rideId } = req.params;
-    const userId = req.userId;
+    const userId     = req.userId;
 
     const user = await User.findById(userId);
     if (user.verificationStatus !== 'verified') {
-      return res.status(403).json({
-        error: 'Account not verified.',
-        verificationStatus: user.verificationStatus
-      });
+      return res.status(403).json({ error: 'Account not verified.', verificationStatus: user.verificationStatus });
     }
 
     const ride = await Ride.findById(rideId).populate('driver', 'name organization verificationStatus');
-    if (!ride) return res.status(404).json({ error: 'Ride not found' });
-    if (ride.status !== 'scheduled') return res.status(400).json({ error: 'Ride no longer available' });
-    if (ride.driver._id.toString() === userId) return res.status(400).json({ error: 'Cannot book your own ride' });
+    if (!ride)                                   return res.status(404).json({ error: 'Ride not found' });
+    if (ride.status !== 'scheduled')             return res.status(400).json({ error: 'Ride no longer available' });
+    if (ride.driver._id.toString() === userId)   return res.status(400).json({ error: 'Cannot book your own ride' });
     if (ride.bookings.map(b => b.toString()).includes(userId)) return res.status(400).json({ error: 'Already booked' });
-    if (ride.bookings.length >= ride.seats) return res.status(400).json({ error: 'No seats available' });
+    if (ride.bookings.length >= ride.seats)      return res.status(400).json({ error: 'No seats available' });
     if (ride.driver.organization !== user.organization) return res.status(403).json({ error: 'Only org members can book this ride' });
-    if (ride.visibility === 'private') return res.status(400).json({ error: 'This is a private ride. Use the request endpoint.' });
+    if (ride.visibility === 'private')           return res.status(400).json({ error: 'This is a private ride. Use the request endpoint.' });
 
     ride.bookings.push(userId);
     await ride.save();
@@ -163,9 +204,9 @@ exports.bookRide = async (req, res) => {
     await User.findByIdAndUpdate(userId, { $inc: { carbonSaved, ridesCompleted: 1 } });
 
     io.to(`user_${ride.driver._id}`).emit('booking-notification', {
-      title: 'New Booking!',
-      message: `${user.name} booked your ride`,
-      rideDetails: { from: ride.from, to: ride.to, date: ride.date }
+      title:       'New Booking!',
+      message:     `${user.name} booked your ride`,
+      rideDetails: { from: ride.from, to: ride.to, date: ride.date },
     });
 
     const populated = await Ride.findById(rideId)
@@ -183,18 +224,16 @@ exports.bookRide = async (req, res) => {
 exports.requestBooking = async (req, res) => {
   try {
     const { rideId } = req.params;
-    const userId = req.userId;
+    const userId     = req.userId;
     const { message } = req.body;
 
     const user = await User.findById(userId);
-    if (user.verificationStatus !== 'verified') {
-      return res.status(403).json({ error: 'Account not verified.' });
-    }
+    if (user.verificationStatus !== 'verified') return res.status(403).json({ error: 'Account not verified.' });
 
     const ride = await Ride.findById(rideId).populate('driver', 'name organization');
-    if (!ride) return res.status(404).json({ error: 'Ride not found' });
-    if (ride.status !== 'scheduled') return res.status(400).json({ error: 'Ride no longer available' });
-    if (ride.driver._id.toString() === userId) return res.status(400).json({ error: 'Cannot request your own ride' });
+    if (!ride)                                   return res.status(404).json({ error: 'Ride not found' });
+    if (ride.status !== 'scheduled')             return res.status(400).json({ error: 'Ride no longer available' });
+    if (ride.driver._id.toString() === userId)   return res.status(400).json({ error: 'Cannot request your own ride' });
     if (ride.bookings.map(b => b.toString()).includes(userId)) return res.status(400).json({ error: 'Already booked' });
     if (ride.pendingBookings.some(p => p.user.toString() === userId)) return res.status(400).json({ error: 'Request already sent' });
     if (ride.driver.organization !== user.organization) return res.status(403).json({ error: 'Only org members can request this ride' });
@@ -204,78 +243,72 @@ exports.requestBooking = async (req, res) => {
 
     const io = req.app.get('io');
     io.to(`user_${ride.driver._id}`).emit('booking-request', {
-      title: 'Ride Request',
-      message: `${user.name} wants to join your ride`,
-      rideId: ride._id,
+      title:    'Ride Request',
+      message:  `${user.name} wants to join your ride`,
+      rideId:   ride._id,
       userId,
       userName: user.name,
     });
 
-    res.json({ message: 'Booking request sent. Waiting for driver approval.' });
+    res.json({ message: 'Request sent. Waiting for driver approval.' });
   } catch (err) {
-    console.error('Request booking error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-// ─── Approve booking request (driver) ────────────────────────────────────────
+// ─── Approve booking ──────────────────────────────────────────────────────────
 exports.approveBooking = async (req, res) => {
   try {
     const { rideId, userId } = req.params;
 
     const ride = await Ride.findById(rideId);
-    if (!ride) return res.status(404).json({ error: 'Ride not found' });
-    if (ride.driver.toString() !== req.userId) return res.status(403).json({ error: 'Only the driver can approve' });
+    if (!ride)                                        return res.status(404).json({ error: 'Ride not found' });
+    if (ride.driver.toString() !== req.userId)        return res.status(403).json({ error: 'Only the driver can approve' });
 
-    const pendingIdx = ride.pendingBookings.findIndex(p => p.user.toString() === userId);
-    if (pendingIdx === -1) return res.status(404).json({ error: 'No pending request from this user' });
-    if (ride.bookings.length >= ride.seats) return res.status(400).json({ error: 'No seats left' });
+    const idx = ride.pendingBookings.findIndex(p => p.user.toString() === userId);
+    if (idx === -1)                                   return res.status(404).json({ error: 'No pending request from this user' });
+    if (ride.bookings.length >= ride.seats)           return res.status(400).json({ error: 'No seats left' });
 
-    ride.pendingBookings.splice(pendingIdx, 1);
+    ride.pendingBookings.splice(idx, 1);
     ride.bookings.push(userId);
     await ride.save();
 
-    const [rider, driver] = await Promise.all([
-      User.findById(userId),
-      User.findById(req.userId),
-    ]);
-
+    const driver      = await User.findById(req.userId);
     const carbonSaved = calculateCarbonSaved(ride.distance, 1, ride.type === 'bikepool' ? 'bike' : 'car');
     await User.findByIdAndUpdate(userId, { $inc: { carbonSaved, ridesCompleted: 1 } });
 
     const io = req.app.get('io');
     io.to(`user_${userId}`).emit('booking-approved', {
-      title: 'Booking Approved! 🎉',
+      title:   'Booking Approved! 🎉',
       message: `${driver.name} approved your ride request`,
-      rideId: ride._id,
+      rideId:  ride._id,
     });
     io.emit('ride-updated', { rideId: ride._id });
 
     res.json({ message: 'Booking approved', carbonSaved });
   } catch (err) {
-    console.error('Approve booking error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-// ─── Decline booking request (driver) ────────────────────────────────────────
+// ─── Decline booking ──────────────────────────────────────────────────────────
 exports.declineBooking = async (req, res) => {
   try {
     const { rideId, userId } = req.params;
 
     const ride = await Ride.findById(rideId);
-    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (!ride)                                 return res.status(404).json({ error: 'Ride not found' });
     if (ride.driver.toString() !== req.userId) return res.status(403).json({ error: 'Only the driver can decline' });
 
     ride.pendingBookings = ride.pendingBookings.filter(p => p.user.toString() !== userId);
     await ride.save();
 
     const driver = await User.findById(req.userId);
-    const io = req.app.get('io');
+    const io     = req.app.get('io');
     io.to(`user_${userId}`).emit('booking-declined', {
-      title: 'Request Declined',
+      title:   'Request Declined',
       message: `${driver.name} declined your ride request`,
-      rideId: ride._id,
+      rideId:  ride._id,
     });
 
     res.json({ message: 'Request declined' });
@@ -288,7 +321,7 @@ exports.declineBooking = async (req, res) => {
 exports.cancelBooking = async (req, res) => {
   try {
     const { rideId } = req.params;
-    const userId = req.userId;
+    const userId     = req.userId;
     const { reason } = req.body;
 
     const ride = await Ride.findById(rideId);
@@ -314,7 +347,7 @@ exports.cancelBooking = async (req, res) => {
     const io = req.app.get('io');
     io.to(`user_${ride.driver}`).emit('booking-cancelled', {
       message: `A passenger cancelled their seat (${ride.from} → ${ride.to})`,
-      rideId: ride._id,
+      rideId:  ride._id,
     });
     io.emit('ride-updated', { rideId: ride._id });
 
@@ -331,27 +364,27 @@ exports.cancelRide = async (req, res) => {
     const { reason } = req.body;
 
     const ride = await Ride.findById(rideId);
-    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (!ride)                                 return res.status(404).json({ error: 'Ride not found' });
     if (ride.driver.toString() !== req.userId) return res.status(403).json({ error: 'Only the driver can cancel this ride' });
     if (['completed','cancelled'].includes(ride.status)) return res.status(400).json({ error: `Ride is already ${ride.status}` });
 
     const carbonPerPassenger = calculateCarbonSaved(ride.distance, 1, ride.type === 'bikepool' ? 'bike' : 'car');
-    for (const passengerId of ride.bookings) {
-      await User.findByIdAndUpdate(passengerId, { $inc: { carbonSaved: -carbonPerPassenger, ridesCompleted: -1 } });
+    for (const pid of ride.bookings) {
+      await User.findByIdAndUpdate(pid, { $inc: { carbonSaved: -carbonPerPassenger, ridesCompleted: -1 } });
     }
 
-    ride.status = 'cancelled';
-    ride.cancelledAt = new Date();
+    ride.status       = 'cancelled';
+    ride.cancelledAt  = new Date();
     ride.cancelReason = reason || '';
     await ride.save();
 
     const io = req.app.get('io');
-    for (const passengerId of ride.bookings) {
-      io.to(`user_${passengerId}`).emit('ride-cancelled-by-driver', {
-        title: 'Ride Cancelled',
+    for (const pid of ride.bookings) {
+      io.to(`user_${pid}`).emit('ride-cancelled-by-driver', {
+        title:   'Ride Cancelled',
         message: `Your ride from ${ride.from} to ${ride.to} was cancelled by the driver.`,
-        reason: reason || '',
-        rideId: ride._id,
+        reason:  reason || '',
+        rideId:  ride._id,
       });
     }
     io.emit('ride-updated', { rideId: ride._id });
@@ -368,7 +401,7 @@ exports.completeRide = async (req, res) => {
     const { rideId } = req.params;
 
     const ride = await Ride.findById(rideId);
-    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (!ride)                                 return res.status(404).json({ error: 'Ride not found' });
     if (ride.driver.toString() !== req.userId) return res.status(403).json({ error: 'Only the driver can complete this ride' });
     if (!['ongoing','scheduled'].includes(ride.status)) return res.status(400).json({ error: `Cannot complete a ${ride.status} ride` });
 
@@ -377,14 +410,14 @@ exports.completeRide = async (req, res) => {
 
     const io = req.app.get('io');
     io.to(rideId).emit('ride-status-update', {
-      status: 'completed',
-      message: 'Ride completed! Please rate your experience.',
+      status:    'completed',
+      message:   'Ride completed! Please rate your experience.',
       timestamp: new Date().toISOString(),
     });
-    for (const passengerId of ride.bookings) {
-      io.to(`user_${passengerId}`).emit('review-reminder', {
-        message: 'Your ride is complete! Rate your driver.',
-        rideId: ride._id,
+    for (const pid of ride.bookings) {
+      io.to(`user_${pid}`).emit('review-reminder', {
+        message:  'Your ride is complete! Rate your driver.',
+        rideId:   ride._id,
         driverId: ride.driver,
       });
     }
@@ -401,8 +434,8 @@ exports.getMyRides = async (req, res) => {
     const userId = req.userId;
     const [offeredRides, bookedRides] = await Promise.all([
       Ride.find({ driver: userId })
-        .populate('bookings', '-password -idCardPublicId')
-        .populate('pendingBookings.user', 'name organization rating')
+        .populate('bookings',              '-password -idCardPublicId')
+        .populate('pendingBookings.user',  'name organization rating')
         .sort({ date: -1 }),
       Ride.find({ bookings: userId })
         .populate('driver', '-password -idCardPublicId')
@@ -436,19 +469,14 @@ exports.getOrgLeaderboard = async (req, res) => {
 
     const orgStats = await User.aggregate([
       { $match: { organization, verificationStatus: 'verified' } },
-      { $group: { _id: null, totalRides: { $sum: '$ridesCompleted' }, totalCarbon: { $sum: '$carbonSaved' }, memberCount: { $sum: 1 }, avgRating: { $avg: '$rating' } } }
+      { $group: { _id: null, totalRides: { $sum: '$ridesCompleted' }, totalCarbon: { $sum: '$carbonSaved' }, memberCount: { $sum: 1 }, avgRating: { $avg: '$rating' } } },
     ]);
 
     res.json({
       organization,
       leaderboard: users.map((u, i) => ({
-        rank: i + 1,
-        name: u.name,
-        rating: u.rating,
-        totalRatings: u.totalRatings,
-        carbonSaved: u.carbonSaved,
-        ridesCompleted: u.ridesCompleted,
-        role: u.role,
+        rank: i + 1, name: u.name, rating: u.rating, totalRatings: u.totalRatings,
+        carbonSaved: u.carbonSaved, ridesCompleted: u.ridesCompleted, role: u.role,
       })),
       orgStats: orgStats[0] || { totalRides: 0, totalCarbon: 0, memberCount: 0, avgRating: 0 },
     });

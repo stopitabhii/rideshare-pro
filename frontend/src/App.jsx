@@ -331,106 +331,80 @@ const MiniStat = ({ icon, val, lbl }) => (
 );
 
 // ─── Ride card (find rides) ───────────────────────────────────────────────────
-const RideCard = ({ ride, onBook, onRequest, currentUserId }) => {
-  const isOwn = ride.driver?._id === currentUserId || ride.driver === currentUserId;
-  const seatsLeft = ride.seats - ride.bookings.length;
-  const isFull = seatsLeft <= 0;
-  const isBooked = ride.bookings.some(b => (b._id || b) === currentUserId);
-  const isPrivate = ride.visibility === 'private';
-
-  return (
-    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, padding:16, marginBottom:12 }}>
-      {/* Top row */}
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:12 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <div style={{ width:36, height:36, borderRadius:10, background:C.accentFaint,
-            border:`1px solid rgba(245,158,11,0.2)`, display:'flex', alignItems:'center',
-            justifyContent:'center', color:C.accent, flexShrink:0, fontFamily:"'Syne',sans-serif",
-            fontWeight:700, fontSize:15 }}>
-            {ride.driver?.name?.[0] || '?'}
-          </div>
-          <div>
-            <p style={{ color:C.text, fontSize:14, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>{ride.driver?.name}</p>
-            <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:2 }}>
-              <Star size={11} color={C.accent} fill={C.accent} />
-              <span style={{ color:C.muted, fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>{ride.driver?.rating || '5.0'}</span>
-              {isPrivate && <span style={{ marginLeft:4, padding:'2px 7px', borderRadius:50, fontSize:10,
-                background:'rgba(167,139,250,0.1)', border:'1px solid rgba(167,139,250,0.25)', color:C.purple,
-                fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Private</span>}
-              {ride.recurring && <span style={{ padding:'2px 7px', borderRadius:50, fontSize:10,
-                background:'rgba(96,165,250,0.1)', border:'1px solid rgba(96,165,250,0.25)', color:C.blue,
-                fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Recurring</span>}
-            </div>
-          </div>
-        </div>
-        <div style={{ display:'flex', alignItems:'center', gap:2 }}>
-          <IndianRupee size={14} color={C.accent} />
-          <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:20, color:C.accent }}>{ride.price}</span>
-        </div>
-      </div>
-
-      {/* Route */}
-      <div style={{ display:'flex', gap:10, marginBottom:12 }}>
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, paddingTop:4 }}>
-          <div style={{ width:8, height:8, borderRadius:'50%', background:C.green }} />
-          <div style={{ width:1.5, height:20, background:C.border }} />
-          <div style={{ width:8, height:8, borderRadius:'50%', background:C.accent }} />
-        </div>
-        <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
-          <span style={{ color:C.text, fontSize:13, fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>{ride.from}</span>
-          <span style={{ color:C.text, fontSize:13, fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>{ride.to}</span>
-        </div>
-      </div>
-
-      {/* Meta chips */}
-      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
-        {[
-          { icon:<Clock size={11} />, val: ride.time },
-          { icon:<Users size={11} />, val: `${seatsLeft} left` },
-          { icon:<MapPin size={11} />, val: `${ride.distance} km` },
-          ride.duration && { icon:<Navigation size={11} />, val: `~${ride.duration} min` },
-          ride.type === 'bikepool' && ride.helmetProvided && { icon:<Shield size={11} />, val:'Helmet', color:C.green },
-        ].filter(Boolean).map((c, i) => (
-          <span key={i} style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 9px',
-            borderRadius:50, background:'rgba(255,255,255,0.04)', color: c.color || C.muted,
-            fontSize:11, fontFamily:"'DM Sans',sans-serif", fontWeight:500 }}>
-            {c.icon}{c.val}
-          </span>
-        ))}
-      </div>
-
-      {/* Recurring days */}
-      {ride.recurring && ride.days?.length > 0 && (
-        <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginBottom:10 }}>
-          {ride.days.map(d => (
-            <span key={d} style={{ padding:'3px 8px', borderRadius:4, background:'rgba(255,255,255,0.04)',
-              color:C.muted, fontSize:11, fontFamily:"'DM Sans',sans-serif" }}>{d}</span>
+const FindRides = ({ rides, filters, setFilters, loadRides, showNotification, loading, currentUserId, onBook, onRequest }) => (
+  <div>
+    {/* Search box */}
+    <div style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: 16, overflow: 'visible', marginBottom: 16, position: 'relative' }}>
+      <LocationInput
+        placeholder="From — Pickup point"
+        value={filters.from}
+        dotColor="#10b981"
+        onChange={name => setFilters(f => ({ ...f, from: name }))}
+      />
+      <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', marginLeft: 38 }} />
+      <LocationInput
+        placeholder="To — Destination"
+        value={filters.to}
+        dotColor="#F59E0B"
+        onChange={name => setFilters(f => ({ ...f, to: name }))}
+      />
+      {/* Footer: type toggle + search button */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.07)',
+        background: 'rgba(255,255,255,0.02)' }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[{ v: 'carpool', l: '🚗 Car' }, { v: 'bikepool', l: '🏍️ Bike' }].map(t => (
+            <button key={t.v} onClick={() => setFilters(f => ({ ...f, type: t.v }))}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px',
+                borderRadius: 50, cursor: 'pointer', fontSize: 12, fontWeight: 500,
+                fontFamily: "'DM Sans', sans-serif", transition: 'all 0.15s',
+                border: `1px solid ${filters.type === t.v ? 'rgba(245,158,11,0.35)' : 'rgba(255,255,255,0.07)'}`,
+                background: filters.type === t.v ? 'rgba(245,158,11,0.12)' : 'transparent',
+                color:      filters.type === t.v ? '#F59E0B' : '#9ca3af' }}>
+              {t.l}
+            </button>
           ))}
         </div>
-      )}
-
-      {/* Book / Request button */}
-      {isBooked ? (
-        <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'center',
-          padding:'9px 0', color:C.green, fontSize:13, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>
-          <CheckCircle size={15} /> Booked
-        </div>
-      ) : isOwn ? (
-        <div style={{ textAlign:'center', color:C.muted, fontSize:13, fontFamily:"'DM Sans',sans-serif", padding:'9px 0' }}>Your ride</div>
-      ) : isFull ? (
-        <div style={{ textAlign:'center', color:C.faint, fontSize:13, fontFamily:"'DM Sans',sans-serif", padding:'9px 0' }}>Full</div>
-      ) : isPrivate ? (
-        <Btn onClick={() => onRequest(ride._id)} variant="ghost" style={{ width:'100%', padding:'10px 0', borderColor:'rgba(167,139,250,0.3)', color:C.purple }}>
-          Request to Join
-        </Btn>
-      ) : (
-        <Btn onClick={() => onBook(ride._id)} variant="primary" style={{ width:'100%', padding:'10px 0' }}>
-          Book Now
-        </Btn>
-      )}
+        <button onClick={loadRides}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px',
+            borderRadius: 50, background: '#F59E0B', color: '#000', border: 'none',
+            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 700, fontSize: 13 }}>
+          🔍 Search
+        </button>
+      </div>
     </div>
-  );
-};
+ 
+    {/* Results */}
+    {loading ? (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+        <div style={{ width: 32, height: 32, borderRadius: '50%',
+          border: '3px solid rgba(255,255,255,0.07)', borderTopColor: '#F59E0B',
+          animation: 'rsSpin 0.8s linear infinite' }} />
+      </div>
+    ) : rides.length === 0 ? (
+      <div style={{ textAlign: 'center', padding: '60px 0' }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🚗</div>
+        <p style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, color: '#f9fafb', fontSize: 17, marginBottom: 6 }}>
+          No rides found
+        </p>
+        <p style={{ color: '#9ca3af', fontSize: 14, fontFamily: "'DM Sans', sans-serif" }}>
+          Try different locations or check back soon
+        </p>
+      </div>
+    ) : (
+      rides.map(ride => (
+        <RideCard
+          key={ride._id}
+          ride={ride}
+          onBook={onBook}
+          onRequest={onRequest}
+          currentUserId={currentUserId}
+        />
+      ))
+    )}
+  </div>
+);
 
 // ─── My ride card ─────────────────────────────────────────────────────────────
 const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => {
@@ -1115,6 +1089,218 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
   );
 };
 
+// ─── useDebounce hook ─────────────────────────────────────────────────────────
+function useDebounce(value, delay) {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+// ─── LocationInput ─────────────────────────────────────────────────────────────
+const ORS_FRONTEND_KEY = process.env.REACT_APP_ORS_API_KEY || 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImI5YTk2ZGVjMDE4OTQ3NmQ5NjdhODNiZjQwZWM1NzdlIiwiaCI6Im11cm11cjY0In0=';
+
+const LocationInput = ({
+  placeholder,
+  value,
+  onChange,    // (shortDisplayName: string, feature: GeoJSONFeature) => void
+  dotColor = '#10b981',
+  required = false,
+}) => {
+  const [query, setQuery]             = React.useState(value || '');
+  const [suggestions, setSuggestions] = React.useState([]);
+  const [loading, setLoading]         = React.useState(false);
+  const [open, setOpen]               = React.useState(false);
+  const [focused, setFocused]         = React.useState(false);
+  const wrapRef                       = React.useRef(null);
+  const abortRef                      = React.useRef(null);
+  const debounced                     = useDebounce(query, 300);
+
+  // Sync parent value
+  React.useEffect(() => { setQuery(value || ''); }, [value]);
+
+  // Fetch ORS autocomplete suggestions
+  React.useEffect(() => {
+    if (!debounced || debounced.length < 3 || !focused) {
+      setSuggestions([]); setOpen(false); return;
+    }
+
+    // Cancel in-flight request
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+
+    setLoading(true);
+
+    const params = new URLSearchParams({
+      api_key:            ORS_FRONTEND_KEY,
+      text:               debounced,
+      'boundary.country': 'IND',
+      size:               '7',
+      lang:               'en',
+    });
+
+    fetch(`https://api.openrouteservice.org/geocode/autocomplete?${params}`, {
+      signal: abortRef.current.signal,
+    })
+      .then(r => r.json())
+      .then(data => {
+        const features = data?.features || [];
+        setSuggestions(features);
+        setOpen(features.length > 0);
+      })
+      .catch(err => { if (err.name !== 'AbortError') setSuggestions([]); })
+      .finally(() => setLoading(false));
+  }, [debounced, focused]);
+
+  // Close on outside click
+  React.useEffect(() => {
+    const h = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false); setFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const select = (feature) => {
+    const p = feature.properties || {};
+
+    // Build a clean short label: "name, locality" or "street, city"
+    const parts = [
+      p.name || p.street,
+      p.locality || p.region,
+    ].filter(Boolean);
+    const label = parts.length > 0
+      ? parts.join(', ')
+      : (p.label || '').split(',').slice(0, 2).join(',').trim();
+
+    setQuery(label);
+    setSuggestions([]);
+    setOpen(false);
+    onChange(label, feature);
+  };
+
+  // Icon by layer / category
+  const icon = (props) => {
+    const layer = props.layer || '';
+    const name  = (props.name || '').toLowerCase();
+    if (layer === 'venue' && (name.includes('university') || name.includes('college') || name.includes('school'))) return '🎓';
+    if (layer === 'venue' && (name.includes('station') || name.includes('metro'))) return '🚉';
+    if (layer === 'venue' && name.includes('hospital')) return '🏥';
+    if (layer === 'venue' && (name.includes('mall') || name.includes('market'))) return '🛍️';
+    if (['venue','address'].includes(layer)) return '📍';
+    if (['locality','borough','localadmin'].includes(layer)) return '🏙️';
+    if (['neighbourhood','suburb'].includes(layer)) return '🏘️';
+    return '📍';
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      {/* Input row */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px',
+        background: focused ? 'rgba(245,158,11,0.04)' : 'transparent',
+        transition: 'background 0.15s',
+      }}>
+        <div style={{
+          width: 10, height: 10, borderRadius: '50%', background: dotColor, flexShrink: 0,
+          boxShadow: focused ? `0 0 0 3px ${dotColor}28` : 'none',
+          transition: 'box-shadow 0.2s',
+        }} />
+        <input
+          type="text"
+          placeholder={placeholder}
+          value={query}
+          required={required}
+          onChange={e => { setQuery(e.target.value); }}
+          onFocus={() => { setFocused(true); if (suggestions.length > 0) setOpen(true); }}
+          style={{
+            flex: 1, background: 'transparent', border: 'none', outline: 'none',
+            color: '#f9fafb', fontFamily: "'DM Sans', sans-serif", fontSize: 14,
+          }}
+        />
+        {loading && (
+          <div style={{
+            width: 14, height: 14, borderRadius: '50%',
+            border: '2px solid rgba(245,158,11,0.25)', borderTopColor: '#F59E0B',
+            animation: 'rsSpin 0.7s linear infinite', flexShrink: 0,
+          }} />
+        )}
+      </div>
+
+      {/* Dropdown */}
+      {open && suggestions.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000,
+          background: '#111827',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: '0 0 14px 14px',
+          boxShadow: '0 20px 56px rgba(0,0,0,0.65)',
+          overflow: 'hidden',
+          maxHeight: 300,
+          overflowY: 'auto',
+        }}>
+          {suggestions.map((feat, i) => {
+            const p = feat.properties || {};
+            const name     = p.name || p.street || p.label?.split(',')?.[0] || '';
+            const sub      = [p.locality, p.region].filter(Boolean).join(', ');
+            const distance = p.distance ? `${(p.distance / 1000).toFixed(1)} km` : '';
+
+            return (
+              <button
+                key={feat.properties?.id || i}
+                onMouseDown={e => { e.preventDefault(); select(feat); }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '11px 16px', background: 'none', border: 'none',
+                  cursor: 'pointer', textAlign: 'left',
+                  borderBottom: i < suggestions.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,158,11,0.07)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+              >
+                <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1 }}>{icon(p)}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{
+                    color: '#f9fafb', fontSize: 13, fontWeight: 500,
+                    fontFamily: "'DM Sans', sans-serif",
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>{name}</p>
+                  {sub && (
+                    <p style={{
+                      color: '#6b7280', fontSize: 11, fontFamily: "'DM Sans', sans-serif",
+                      marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>{sub}</p>
+                  )}
+                </div>
+                {distance && (
+                  <span style={{ fontSize: 11, color: '#4b5563', fontFamily: "'DM Sans', sans-serif", flexShrink: 0 }}>
+                    {distance}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+
+          {/* ORS attribution */}
+          <div style={{
+            padding: '7px 16px', background: 'rgba(255,255,255,0.02)',
+            display: 'flex', alignItems: 'center', gap: 6,
+            borderTop: '1px solid rgba(255,255,255,0.05)',
+          }}>
+            <span style={{ fontSize: 10, color: '#374151', fontFamily: "'DM Sans', sans-serif" }}>
+              © OpenRouteService · OpenStreetMap contributors
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 // ─── App root ─────────────────────────────────────────────────────────────────
 const App = () => {
   const [user, setUser] = useState(null);
