@@ -54,18 +54,11 @@ const ORGS = [
 ];
 
 // ─── Email validator ──────────────────────────────────────────────────────────
-const VALID_DOMAINS = [
-  'gmail.com','googlemail.com','yahoo.com','yahoo.in','yahoo.co.in',
-  'outlook.com','hotmail.com','live.com','icloud.com','me.com','mac.com',
-  'proton.me','protonmail.com','rediffmail.com',
-  // common edu/work patterns are allowed if they have a proper TLD
-];
 const isValidEmail = (email) => {
   const re = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
   if (!re.test(email)) return false;
   const domain = email.split('@')[1]?.toLowerCase();
   if (!domain) return false;
-  // Block obviously fake/test domains
   const blocked = ['test.com','fake.com','example.com','mailinator.com','tempmail.com','throwaway.com','guerrillamail.com'];
   return !blocked.includes(domain);
 };
@@ -160,7 +153,7 @@ const VerifBanner = ({ user, onUpload }) => {
   if (user.verificationStatus === 'verified') return null;
   const cfg = {
     pending:      { msg:'Upload your org ID card to start riding', action:'Upload ID', color:'rgba(245,158,11,0.12)', border:'rgba(245,158,11,0.3)', text:C.accent },
-    under_review: { msg:'ID under review — we\'ll verify within 24 h', action:null,    color:'rgba(96,165,250,0.1)', border:'rgba(96,165,250,0.3)',   text:C.blue },
+    under_review: { msg:"ID under review — we'll verify within 24 h", action:null, color:'rgba(96,165,250,0.1)', border:'rgba(96,165,250,0.3)', text:C.blue },
     rejected:     { msg:`ID rejected${user.verificationNote ? ': '+user.verificationNote : ''}. Please re-upload.`, action:'Re-upload', color:'rgba(239,68,68,0.1)', border:'rgba(239,68,68,0.3)', text:C.red },
   }[user.verificationStatus];
   if (!cfg) return null;
@@ -264,7 +257,6 @@ const ReviewModal = ({ ride, onClose, showNotif }) => {
         <p style={{ color:C.muted, fontSize:13, marginBottom:16, fontFamily:"'DM Sans',sans-serif" }}>
           {ride.from} → {ride.to}
         </p>
-        {/* Stars */}
         <div style={{ display:'flex', gap:8, marginBottom:16, justifyContent:'center' }}>
           {[1,2,3,4,5].map(s => (
             <button key={s} onClick={() => setRating(s)}
@@ -272,7 +264,6 @@ const ReviewModal = ({ ride, onClose, showNotif }) => {
                 filter: s <= rating ? 'none' : 'grayscale(1) opacity(0.3)', transition:'all 0.15s' }}>⭐</button>
           ))}
         </div>
-        {/* Tags */}
         <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:14 }}>
           {TAG_OPTS.map(t => (
             <button key={t} onClick={() => setTags(prev => prev.includes(t) ? prev.filter(x=>x!==t) : [...prev,t])}
@@ -330,88 +321,225 @@ const MiniStat = ({ icon, val, lbl }) => (
   </div>
 );
 
+// ─── useDebounce hook ─────────────────────────────────────────────────────────
+function useDebounce(value, delay) {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+// ─── LocationInput ────────────────────────────────────────────────────────────
+const ORS_FRONTEND_KEY = process.env.REACT_APP_ORS_API_KEY || '';
+
+const LocationInput = ({ placeholder, value, onChange, dotColor = '#10b981', required = false }) => {
+  const [query, setQuery]             = React.useState(value || '');
+  const [suggestions, setSuggestions] = React.useState([]);
+  const [loading, setLoading]         = React.useState(false);
+  const [open, setOpen]               = React.useState(false);
+  const [focused, setFocused]         = React.useState(false);
+  const wrapRef                       = React.useRef(null);
+  const abortRef                      = React.useRef(null);
+  const debounced                     = useDebounce(query, 300);
+
+  React.useEffect(() => { setQuery(value || ''); }, [value]);
+
+  React.useEffect(() => {
+    if (!debounced || debounced.length < 3 || !focused) {
+      setSuggestions([]); setOpen(false); return;
+    }
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    setLoading(true);
+    const params = new URLSearchParams({
+      api_key: ORS_FRONTEND_KEY, text: debounced,
+      'boundary.country': 'IND', size: '7', lang: 'en',
+    });
+    fetch(`https://api.openrouteservice.org/geocode/autocomplete?${params}`, { signal: abortRef.current.signal })
+      .then(r => r.json())
+      .then(data => { const f = data?.features || []; setSuggestions(f); setOpen(f.length > 0); })
+      .catch(err => { if (err.name !== 'AbortError') setSuggestions([]); })
+      .finally(() => setLoading(false));
+  }, [debounced, focused]);
+
+  React.useEffect(() => {
+    const h = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) { setOpen(false); setFocused(false); } };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const select = (feature) => {
+    const p = feature.properties || {};
+    const parts = [p.name || p.street, p.locality || p.region].filter(Boolean);
+    const label = parts.length > 0 ? parts.join(', ') : (p.label || '').split(',').slice(0, 2).join(',').trim();
+    setQuery(label); setSuggestions([]); setOpen(false); onChange(label, feature);
+  };
+
+  const icon = (props) => {
+    const layer = props.layer || '';
+    const name = (props.name || '').toLowerCase();
+    if (layer === 'venue' && (name.includes('university') || name.includes('college') || name.includes('school'))) return '🎓';
+    if (layer === 'venue' && (name.includes('station') || name.includes('metro'))) return '🚉';
+    if (layer === 'venue' && name.includes('hospital')) return '🏥';
+    if (layer === 'venue' && (name.includes('mall') || name.includes('market'))) return '🛍️';
+    if (['venue','address'].includes(layer)) return '📍';
+    if (['locality','borough','localadmin'].includes(layer)) return '🏙️';
+    if (['neighbourhood','suburb'].includes(layer)) return '🏘️';
+    return '📍';
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px',
+        background: focused ? 'rgba(245,158,11,0.04)' : 'transparent', transition:'background 0.15s' }}>
+        <div style={{ width:10, height:10, borderRadius:'50%', background:dotColor, flexShrink:0,
+          boxShadow: focused ? `0 0 0 3px ${dotColor}28` : 'none', transition:'box-shadow 0.2s' }} />
+        <input type="text" placeholder={placeholder} value={query} required={required}
+          onChange={e => setQuery(e.target.value)}
+          onFocus={() => { setFocused(true); if (suggestions.length > 0) setOpen(true); }}
+          style={{ flex:1, background:'transparent', border:'none', outline:'none',
+            color:'#f9fafb', fontFamily:"'DM Sans',sans-serif", fontSize:14 }} />
+        {loading && <div style={{ width:14, height:14, borderRadius:'50%',
+          border:'2px solid rgba(245,158,11,0.25)', borderTopColor:'#F59E0B',
+          animation:'rsSpin 0.7s linear infinite', flexShrink:0 }} />}
+      </div>
+      {open && suggestions.length > 0 && (
+        <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:1000,
+          background:'#111827', border:'1px solid rgba(255,255,255,0.1)',
+          borderRadius:'0 0 14px 14px', boxShadow:'0 20px 56px rgba(0,0,0,0.65)',
+          overflow:'hidden', maxHeight:300, overflowY:'auto' }}>
+          {suggestions.map((feat, i) => {
+            const p = feat.properties || {};
+            const name = p.name || p.street || p.label?.split(',')?.[0] || '';
+            const sub = [p.locality, p.region].filter(Boolean).join(', ');
+            return (
+              <button key={feat.properties?.id || i} onMouseDown={e => { e.preventDefault(); select(feat); }}
+                style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'11px 16px',
+                  background:'none', border:'none', cursor:'pointer', textAlign:'left',
+                  borderBottom: i < suggestions.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,158,11,0.07)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                <span style={{ fontSize:18, flexShrink:0, lineHeight:1 }}>{icon(p)}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ color:'#f9fafb', fontSize:13, fontWeight:500, fontFamily:"'DM Sans',sans-serif",
+                    whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{name}</p>
+                  {sub && <p style={{ color:'#6b7280', fontSize:11, fontFamily:"'DM Sans',sans-serif",
+                    marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{sub}</p>}
+                </div>
+              </button>
+            );
+          })}
+          <div style={{ padding:'7px 16px', background:'rgba(255,255,255,0.02)', borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+            <span style={{ fontSize:10, color:'#374151', fontFamily:"'DM Sans',sans-serif" }}>
+              © OpenRouteService · OpenStreetMap contributors
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Ride card (find rides) ───────────────────────────────────────────────────
-const FindRides = ({ rides, filters, setFilters, loadRides, showNotification, loading, currentUserId, onBook, onRequest }) => (
-  <div>
-    {/* Search box */}
-    <div style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.07)',
-      borderRadius: 16, overflow: 'visible', marginBottom: 16, position: 'relative' }}>
-      <LocationInput
-        placeholder="From — Pickup point"
-        value={filters.from}
-        dotColor="#10b981"
-        onChange={name => setFilters(f => ({ ...f, from: name }))}
-      />
-      <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', marginLeft: 38 }} />
-      <LocationInput
-        placeholder="To — Destination"
-        value={filters.to}
-        dotColor="#F59E0B"
-        onChange={name => setFilters(f => ({ ...f, to: name }))}
-      />
-      {/* Footer: type toggle + search button */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.07)',
-        background: 'rgba(255,255,255,0.02)' }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {[{ v: 'carpool', l: '🚗 Car' }, { v: 'bikepool', l: '🏍️ Bike' }].map(t => (
-            <button key={t.v} onClick={() => setFilters(f => ({ ...f, type: t.v }))}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px',
-                borderRadius: 50, cursor: 'pointer', fontSize: 12, fontWeight: 500,
-                fontFamily: "'DM Sans', sans-serif", transition: 'all 0.15s',
-                border: `1px solid ${filters.type === t.v ? 'rgba(245,158,11,0.35)' : 'rgba(255,255,255,0.07)'}`,
-                background: filters.type === t.v ? 'rgba(245,158,11,0.12)' : 'transparent',
-                color:      filters.type === t.v ? '#F59E0B' : '#9ca3af' }}>
-              {t.l}
-            </button>
+const RideCard = ({ ride, onBook, onRequest, currentUserId }) => {
+  const isOwn = ride.driver?._id === currentUserId || ride.driver === currentUserId;
+  const seatsLeft = ride.seats - ride.bookings.length;
+  const isFull = seatsLeft <= 0;
+  const isBooked = ride.bookings.some(b => (b._id || b) === currentUserId);
+  const isPrivate = ride.visibility === 'private';
+
+  return (
+    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, padding:16, marginBottom:12 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:12 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ width:36, height:36, borderRadius:10, background:C.accentFaint,
+            border:`1px solid rgba(245,158,11,0.2)`, display:'flex', alignItems:'center',
+            justifyContent:'center', color:C.accent, flexShrink:0,
+            fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15 }}>
+            {ride.driver?.name?.[0] || '?'}
+          </div>
+          <div>
+            <p style={{ color:C.text, fontSize:14, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>{ride.driver?.name}</p>
+            <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:2 }}>
+              <Star size={11} color={C.accent} fill={C.accent} />
+              <span style={{ color:C.muted, fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>{ride.driver?.rating || '5.0'}</span>
+              {isPrivate && <span style={{ marginLeft:4, padding:'2px 7px', borderRadius:50, fontSize:10,
+                background:'rgba(167,139,250,0.1)', border:'1px solid rgba(167,139,250,0.25)', color:C.purple,
+                fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Private</span>}
+              {ride.recurring && <span style={{ padding:'2px 7px', borderRadius:50, fontSize:10,
+                background:'rgba(96,165,250,0.1)', border:'1px solid rgba(96,165,250,0.25)', color:C.blue,
+                fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>Recurring</span>}
+            </div>
+          </div>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:2 }}>
+          <IndianRupee size={14} color={C.accent} />
+          <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:20, color:C.accent }}>{ride.price}</span>
+        </div>
+      </div>
+      <div style={{ display:'flex', gap:10, marginBottom:12 }}>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, paddingTop:4 }}>
+          <div style={{ width:8, height:8, borderRadius:'50%', background:C.green }} />
+          <div style={{ width:1.5, height:20, background:C.border }} />
+          <div style={{ width:8, height:8, borderRadius:'50%', background:C.accent }} />
+        </div>
+        <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
+          <span style={{ color:C.text, fontSize:13, fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>{ride.from}</span>
+          <span style={{ color:C.text, fontSize:13, fontWeight:500, fontFamily:"'DM Sans',sans-serif" }}>{ride.to}</span>
+        </div>
+      </div>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
+        {[
+          { icon:<Clock size={11} />, val: ride.time },
+          { icon:<Users size={11} />, val: `${seatsLeft} left` },
+          { icon:<MapPin size={11} />, val: `${ride.distance} km` },
+          ride.duration && { icon:<Navigation size={11} />, val: `~${ride.duration} min` },
+        ].filter(Boolean).map((c, i) => (
+          <span key={i} style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 9px',
+            borderRadius:50, background:'rgba(255,255,255,0.04)', color:C.muted,
+            fontSize:11, fontFamily:"'DM Sans',sans-serif", fontWeight:500 }}>
+            {c.icon}{c.val}
+          </span>
+        ))}
+      </div>
+      {ride.recurring && ride.days?.length > 0 && (
+        <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginBottom:10 }}>
+          {ride.days.map(d => (
+            <span key={d} style={{ padding:'3px 8px', borderRadius:4, background:'rgba(255,255,255,0.04)',
+              color:C.muted, fontSize:11, fontFamily:"'DM Sans',sans-serif" }}>{d}</span>
           ))}
         </div>
-        <button onClick={loadRides}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px',
-            borderRadius: 50, background: '#F59E0B', color: '#000', border: 'none',
-            cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 700, fontSize: 13 }}>
-          🔍 Search
-        </button>
-      </div>
+      )}
+      {isBooked ? (
+        <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'center',
+          padding:'9px 0', color:C.green, fontSize:13, fontWeight:700, fontFamily:"'DM Sans',sans-serif" }}>
+          <CheckCircle size={15} /> Booked
+        </div>
+      ) : isOwn ? (
+        <div style={{ textAlign:'center', color:C.muted, fontSize:13, fontFamily:"'DM Sans',sans-serif", padding:'9px 0' }}>Your ride</div>
+      ) : isFull ? (
+        <div style={{ textAlign:'center', color:C.faint, fontSize:13, fontFamily:"'DM Sans',sans-serif", padding:'9px 0' }}>Full</div>
+      ) : isPrivate ? (
+        <Btn onClick={() => onRequest(ride._id)} variant="ghost" style={{ width:'100%', padding:'10px 0', borderColor:'rgba(167,139,250,0.3)', color:C.purple }}>
+          Request to Join
+        </Btn>
+      ) : (
+        <Btn onClick={() => onBook(ride._id)} variant="primary" style={{ width:'100%', padding:'10px 0' }}>
+          Book Now
+        </Btn>
+      )}
     </div>
- 
-    {/* Results */}
-    {loading ? (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-        <div style={{ width: 32, height: 32, borderRadius: '50%',
-          border: '3px solid rgba(255,255,255,0.07)', borderTopColor: '#F59E0B',
-          animation: 'rsSpin 0.8s linear infinite' }} />
-      </div>
-    ) : rides.length === 0 ? (
-      <div style={{ textAlign: 'center', padding: '60px 0' }}>
-        <div style={{ fontSize: 48, marginBottom: 12 }}>🚗</div>
-        <p style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, color: '#f9fafb', fontSize: 17, marginBottom: 6 }}>
-          No rides found
-        </p>
-        <p style={{ color: '#9ca3af', fontSize: 14, fontFamily: "'DM Sans', sans-serif" }}>
-          Try different locations or check back soon
-        </p>
-      </div>
-    ) : (
-      rides.map(ride => (
-        <MyRideCard
-          key={ride._id}
-          ride={ride}
-          onBook={onBook}
-          onRequest={onRequest}
-          currentUserId={currentUserId}
-        />
-      ))
-    )}
-  </div>
-);
+  );
+};
 
 // ─── My ride card ─────────────────────────────────────────────────────────────
 const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => {
   const isDriver = (ride.driver?._id || ride.driver) === currentUserId;
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const [cancelModal, setCancelModal] = useState(null); // 'booking' | 'ride'
+  const [cancelModal, setCancelModal] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const STATUS = { scheduled:'#1e3a5f', ongoing:'#064e3b', completed:'#1f2937', cancelled:'#3b1010' };
@@ -441,16 +569,14 @@ const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => 
   const doApprove = async (userId) => {
     try {
       await api.put(`/rides/approve/${ride._id}/${userId}`);
-      showNotif('Booking approved!', 'success');
-      onRefresh();
+      showNotif('Booking approved!', 'success'); onRefresh();
     } catch (err) { showNotif(err.response?.data?.error || 'Failed', 'error'); }
   };
 
   const doDecline = async (userId) => {
     try {
       await api.put(`/rides/decline/${ride._id}/${userId}`);
-      showNotif('Request declined', 'info');
-      onRefresh();
+      showNotif('Request declined', 'info'); onRefresh();
     } catch (err) { showNotif(err.response?.data?.error || 'Failed', 'error'); }
   };
 
@@ -458,7 +584,6 @@ const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => 
 
   return (
     <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, padding:16, marginBottom:12 }}>
-      {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:10 }}>
         <div>
           <p style={{ color:C.text, fontWeight:600, fontSize:15, fontFamily:"'DM Sans',sans-serif" }}>
@@ -481,8 +606,6 @@ const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => 
           )}
         </div>
       </div>
-
-      {/* Meta */}
       <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom: open ? 12 : 0 }}>
         <span style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:50,
           background:'rgba(255,255,255,0.04)', color:C.muted, fontSize:11, fontFamily:"'DM Sans',sans-serif" }}>
@@ -498,8 +621,6 @@ const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => 
             color:C.purple, fontFamily:"'DM Sans',sans-serif" }}>Private</span>
         )}
       </div>
-
-      {/* Actions dropdown */}
       {open && (
         <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12, display:'flex', flexDirection:'column', gap:8 }}>
           {isDriver && ride.status === 'scheduled' && (
@@ -519,8 +640,6 @@ const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => 
           )}
         </div>
       )}
-
-      {/* Pending booking requests (driver sees) */}
       {isDriver && ride.pendingBookings?.length > 0 && (
         <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12, marginTop:12 }}>
           <p style={{ color:C.muted, fontSize:11, fontWeight:600, textTransform:'uppercase',
@@ -553,8 +672,6 @@ const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => 
           ))}
         </div>
       )}
-
-      {/* Passengers list (driver sees) */}
       {isDriver && ride.bookings?.length > 0 && typeof ride.bookings[0] === 'object' && (
         <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12, marginTop:4 }}>
           <p style={{ color:C.muted, fontSize:11, fontWeight:600, textTransform:'uppercase',
@@ -576,8 +693,6 @@ const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => 
           ))}
         </div>
       )}
-
-      {/* Review button for completed rides */}
       {ride.status === 'completed' && !isDriver && (
         <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12, marginTop:4 }}>
           <Btn onClick={() => onReview(ride)} variant="ghost" style={{ width:'100%', padding:'10px 0', fontSize:13 }}>
@@ -585,8 +700,6 @@ const MyRideCard = ({ ride, currentUserId, onRefresh, showNotif, onReview }) => 
           </Btn>
         </div>
       )}
-
-      {/* Cancel confirm modal */}
       {cancelModal && (
         <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(0,0,0,0.75)',
           backdropFilter:'blur(6px)', display:'flex', alignItems:'flex-end', justifyContent:'center',
@@ -672,19 +785,13 @@ const OfferRide = ({ user, showNotif, onSuccess }) => {
     <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, padding:'20px 16px' }}>
       {user.verificationStatus !== 'verified' && (
         <div style={{ padding:'10px 14px', borderRadius:C.rs, background:'rgba(245,158,11,0.1)',
-          border:'1px solid rgba(245,158,11,0.3)', marginBottom:16,
-          display:'flex', alignItems:'center', gap:8 }}>
+          border:'1px solid rgba(245,158,11,0.3)', marginBottom:16, display:'flex', alignItems:'center', gap:8 }}>
           <AlertCircle size={15} color={C.accent} />
-          <p style={{ fontSize:12, color:C.accent, fontFamily:"'DM Sans',sans-serif" }}>
-            Verify your account to offer rides.
-          </p>
+          <p style={{ fontSize:12, color:C.accent, fontFamily:"'DM Sans',sans-serif" }}>Verify your account to offer rides.</p>
         </div>
       )}
-      <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:20, color:C.text, marginBottom:18 }}>
-        Offer a ride
-      </h2>
+      <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:20, color:C.text, marginBottom:18 }}>Offer a ride</h2>
       <form onSubmit={submit} style={{ display:'flex', flexDirection:'column', gap:16 }}>
-        {/* Type */}
         <div style={{ display:'flex', background:'rgba(255,255,255,0.03)', borderRadius:C.rs, padding:4, border:`1px solid ${C.border}` }}>
           {[{v:'carpool',l:'🚗 Carpool'},{v:'bikepool',l:'🏍️ Bikepool'}].map(t => (
             <button key={t.v} type="button" onClick={() => { set('type',t.v); set('seats',t.v==='bikepool'?1:3); }}
@@ -697,8 +804,6 @@ const OfferRide = ({ user, showNotif, onSuccess }) => {
             </button>
           ))}
         </div>
-
-        {/* Visibility */}
         <div style={{ display:'flex', background:'rgba(255,255,255,0.03)', borderRadius:C.rs, padding:4, border:`1px solid ${C.border}` }}>
           {[{v:'public',l:'🌐 Public'},{v:'private',l:'🔒 Private'}].map(t => (
             <button key={t.v} type="button" onClick={() => set('visibility',t.v)}
@@ -711,27 +816,12 @@ const OfferRide = ({ user, showNotif, onSuccess }) => {
             </button>
           ))}
         </div>
-
         {/* From / To with autocomplete */}
-<div style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.border}`, borderRadius:C.r, overflow:'visible', position:'relative' }}>
-  <LocationInput
-    placeholder="From — Pickup point"
-    value={form.from}
-    dotColor={C.green}
-    required
-    onChange={(name) => set('from', name)}
-  />
-  <div style={{ height:1, background:C.border, marginLeft:38 }} />
-  <LocationInput
-    placeholder="To — Destination"
-    value={form.to}
-    dotColor={C.accent}
-    required
-    onChange={(name) => set('to', name)}
-  />
-</div>
-
-        {/* Auto distance */}
+        <div style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.border}`, borderRadius:C.r, overflow:'visible', position:'relative' }}>
+          <LocationInput placeholder="From — Pickup point" value={form.from} dotColor={C.green} required onChange={(name) => set('from', name)} />
+          <div style={{ height:1, background:C.border, marginLeft:38 }} />
+          <LocationInput placeholder="To — Destination" value={form.to} dotColor={C.accent} required onChange={(name) => set('to', name)} />
+        </div>
         <button type="button" onClick={fetchDist} disabled={distLoading}
           style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6,
             padding:'9px 0', borderRadius:50, border:`1px dashed rgba(245,158,11,0.4)`,
@@ -740,7 +830,6 @@ const OfferRide = ({ user, showNotif, onSuccess }) => {
           {distLoading ? <Loader size={14} style={{ animation:'rsSpin 0.8s linear infinite' }} /> : <Zap size={14} />}
           {distLoading ? 'Calculating…' : 'Auto-calculate Distance'}
         </button>
-
         {distInfo && (
           <div style={{ padding:'10px 14px', borderRadius:C.rs, background:'rgba(96,165,250,0.08)',
             border:'1px solid rgba(96,165,250,0.2)', display:'flex', alignItems:'center', gap:8 }}>
@@ -750,8 +839,6 @@ const OfferRide = ({ user, showNotif, onSuccess }) => {
             </span>
           </div>
         )}
-
-        {/* Date / Time / Distance */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
           {[
             { label:'Date', type:'date', key:'date' },
@@ -768,8 +855,6 @@ const OfferRide = ({ user, showNotif, onSuccess }) => {
             </div>
           ))}
         </div>
-
-        {/* Seats / Price */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
           {[
             { label:'Seats', key:'seats', type:'number', min:1, max: form.type==='bikepool'?1:6, disabled: form.type==='bikepool' },
@@ -786,9 +871,7 @@ const OfferRide = ({ user, showNotif, onSuccess }) => {
             </div>
           ))}
         </div>
-
         <Toggle on={form.recurring} onClick={() => set('recurring',!form.recurring)} label="Daily recurring commute" />
-
         {form.recurring && (
           <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
             {DAYS.map(d => (
@@ -804,14 +887,13 @@ const OfferRide = ({ user, showNotif, onSuccess }) => {
             ))}
           </div>
         )}
-
         {form.type === 'bikepool' && (
           <Toggle on={form.helmetProvided} onClick={() => set('helmetProvided',!form.helmetProvided)} label="I'll provide a helmet" />
         )}
-
         <button type="submit" disabled={loading || user.verificationStatus!=='verified'}
           style={{ padding:'14px 0', borderRadius:50, background:C.accent, color:'#000', border:'none',
-            fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, cursor: (loading || user.verificationStatus!=='verified') ? 'default' : 'pointer',
+            fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15,
+            cursor: (loading || user.verificationStatus!=='verified') ? 'default' : 'pointer',
             opacity: (loading || user.verificationStatus!=='verified') ? 0.45 : 1, transition:'all 0.2s',
             display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
           {loading ? <><Loader size={15} style={{ animation:'rsSpin 0.8s linear infinite' }} /> Creating…</> : 'List My Ride'}
@@ -842,8 +924,6 @@ const Leaderboard = ({ user, showNotif }) => {
     <div>
       <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:20, color:C.text, marginBottom:4 }}>Leaderboard</h2>
       <p style={{ color:C.muted, fontSize:13, marginBottom:20, fontFamily:"'DM Sans',sans-serif" }}>{user.organization}</p>
-
-      {/* Org stats */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
         {[
           { icon:<Leaf size={18} color={C.green} />, val:`${(data.orgStats.totalCarbon||0).toFixed(1)} kg`, lbl:'CO₂ Saved Together', bg:'rgba(16,185,129,0.08)', border:'rgba(16,185,129,0.2)' },
@@ -856,8 +936,6 @@ const Leaderboard = ({ user, showNotif }) => {
           </div>
         ))}
       </div>
-
-      {/* Podium top 3 */}
       {data.leaderboard.length >= 3 && (
         <div style={{ display:'flex', gap:10, marginBottom:16, alignItems:'flex-end' }}>
           {[1,0,2].map(i => {
@@ -881,8 +959,6 @@ const Leaderboard = ({ user, showNotif }) => {
           })}
         </div>
       )}
-
-      {/* Full list */}
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
         {data.leaderboard.map((e,i) => (
           <div key={i} style={{ display:'flex', alignItems:'center', gap:12, background:C.surface,
@@ -934,7 +1010,6 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-      {/* Avatar card */}
       <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, padding:20,
         display:'flex', alignItems:'center', gap:16 }}>
         <div style={{ width:56, height:56, borderRadius:14, background:C.accent,
@@ -957,8 +1032,6 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
           </div>
         </div>
       </div>
-
-      {/* Stats */}
       <div style={{ display:'flex', background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, overflow:'hidden' }}>
         {[
           { val:user.ridesCompleted||0, lbl:'Rides' },
@@ -972,8 +1045,6 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
           </div>
         ))}
       </div>
-
-      {/* Info */}
       <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, padding:'4px 0' }}>
         {[
           { label:'Organisation', value:user.organization },
@@ -986,8 +1057,6 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
           </div>
         ))}
       </div>
-
-      {/* ID Verification */}
       {user.verificationStatus !== 'verified' && (
         <button onClick={onUploadId}
           style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -1002,8 +1071,6 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
           <ArrowRight size={16} color={C.accent} />
         </button>
       )}
-
-      {/* Trusted contacts */}
       <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, padding:16 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -1025,13 +1092,11 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
                 <input placeholder="Name" value={c.name}
                   onChange={e => { const nc=[...contacts]; nc[i]={...nc[i],name:e.target.value}; setContacts(nc); }}
                   style={{ width:'100%', boxSizing:'border-box', background:'rgba(255,255,255,0.04)', border:`1px solid ${C.border}`,
-                    borderRadius:C.rxs, color:C.text, fontFamily:"'DM Sans',sans-serif", fontSize:13,
-                    padding:'9px 12px', outline:'none', marginBottom:6 }} />
+                    borderRadius:C.rxs, color:C.text, fontFamily:"'DM Sans',sans-serif", fontSize:13, padding:'9px 12px', outline:'none', marginBottom:6 }} />
                 <input placeholder="Phone" value={c.phone}
                   onChange={e => { const nc=[...contacts]; nc[i]={...nc[i],phone:e.target.value}; setContacts(nc); }}
                   style={{ width:'100%', boxSizing:'border-box', background:'rgba(255,255,255,0.04)', border:`1px solid ${C.border}`,
-                    borderRadius:C.rxs, color:C.text, fontFamily:"'DM Sans',sans-serif", fontSize:13,
-                    padding:'9px 12px', outline:'none', marginBottom:6 }} />
+                    borderRadius:C.rxs, color:C.text, fontFamily:"'DM Sans',sans-serif", fontSize:13, padding:'9px 12px', outline:'none', marginBottom:6 }} />
                 <button onClick={() => setContacts(contacts.filter((_,j)=>j!==i))}
                   style={{ background:'none', border:'none', cursor:'pointer', color:C.red, fontSize:12,
                     display:'flex', alignItems:'center', gap:4, fontFamily:"'DM Sans',sans-serif" }}>
@@ -1043,15 +1108,13 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
               {contacts.length < 3 && (
                 <button onClick={() => setContacts([...contacts,{name:'',phone:'',relation:'Emergency Contact'}])}
                   style={{ flex:1, padding:'11px 0', borderRadius:50, border:`1px dashed ${C.border}`,
-                    background:'transparent', color:C.muted, fontSize:13, cursor:'pointer',
-                    fontFamily:"'DM Sans',sans-serif" }}>
+                    background:'transparent', color:C.muted, fontSize:13, cursor:'pointer', fontFamily:"'DM Sans',sans-serif" }}>
                   + Add
                 </button>
               )}
               <button onClick={saveContacts} disabled={saving}
                 style={{ flex:1, padding:'11px 0', borderRadius:50, background:C.accent, color:'#000',
-                  border:'none', fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:13, cursor:'pointer',
-                  opacity: saving ? 0.5 : 1 }}>
+                  border:'none', fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:13, cursor:'pointer', opacity: saving ? 0.5 : 1 }}>
                 {saving ? '…' : 'Save'}
               </button>
             </div>
@@ -1073,19 +1136,13 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
           ))
         )}
       </div>
-
-      {/* Future features notice */}
       <div style={{ background:'rgba(167,139,250,0.08)', border:'1px solid rgba(167,139,250,0.2)',
         borderRadius:C.r, padding:'14px 16px' }}>
-        <p style={{ color:C.purple, fontSize:12, fontWeight:600, fontFamily:"'DM Sans',sans-serif", marginBottom:4 }}>
-          🚀 Coming Soon
-        </p>
+        <p style={{ color:C.purple, fontSize:12, fontWeight:600, fontFamily:"'DM Sans',sans-serif", marginBottom:4 }}>🚀 Coming Soon</p>
         <p style={{ color:C.muted, fontSize:12, fontFamily:"'DM Sans',sans-serif", lineHeight:1.6 }}>
           OTP login via mobile/email · UPI payment gateway · Live GPS map · In-app chat (auto-deleted after 2h)
         </p>
       </div>
-
-      {/* Logout */}
       <Btn onClick={logout} variant="danger" style={{ width:'100%', padding:'14px 0', fontSize:14 }}>
         <LogOut size={15} /> Sign Out
       </Btn>
@@ -1093,218 +1150,6 @@ const ProfileTab = ({ user, logout, showNotif, onUploadId, onRefreshUser }) => {
   );
 };
 
-// ─── useDebounce hook ─────────────────────────────────────────────────────────
-function useDebounce(value, delay) {
-  const [debounced, setDebounced] = React.useState(value);
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
-}
-
-// ─── LocationInput ─────────────────────────────────────────────────────────────
-const ORS_FRONTEND_KEY = process.env.REACT_APP_ORS_API_KEY || '';
-
-const LocationInput = ({
-  placeholder,
-  value,
-  onChange,    // (shortDisplayName: string, feature: GeoJSONFeature) => void
-  dotColor = '#10b981',
-  required = false,
-}) => {
-  const [query, setQuery]             = React.useState(value || '');
-  const [suggestions, setSuggestions] = React.useState([]);
-  const [loading, setLoading]         = React.useState(false);
-  const [open, setOpen]               = React.useState(false);
-  const [focused, setFocused]         = React.useState(false);
-  const wrapRef                       = React.useRef(null);
-  const abortRef                      = React.useRef(null);
-  const debounced                     = useDebounce(query, 300);
-
-  // Sync parent value
-  React.useEffect(() => { setQuery(value || ''); }, [value]);
-
-  // Fetch ORS autocomplete suggestions
-  React.useEffect(() => {
-    if (!debounced || debounced.length < 3 || !focused) {
-      setSuggestions([]); setOpen(false); return;
-    }
-
-    // Cancel in-flight request
-    if (abortRef.current) abortRef.current.abort();
-    abortRef.current = new AbortController();
-
-    setLoading(true);
-
-    const params = new URLSearchParams({
-      api_key:            ORS_FRONTEND_KEY,
-      text:               debounced,
-      'boundary.country': 'IND',
-      size:               '7',
-      lang:               'en',
-    });
-
-    fetch(`https://api.openrouteservice.org/geocode/autocomplete?${params}`, {
-      signal: abortRef.current.signal,
-    })
-      .then(r => r.json())
-      .then(data => {
-        const features = data?.features || [];
-        setSuggestions(features);
-        setOpen(features.length > 0);
-      })
-      .catch(err => { if (err.name !== 'AbortError') setSuggestions([]); })
-      .finally(() => setLoading(false));
-  }, [debounced, focused]);
-
-  // Close on outside click
-  React.useEffect(() => {
-    const h = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        setOpen(false); setFocused(false);
-      }
-    };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
-
-  const select = (feature) => {
-    const p = feature.properties || {};
-
-    // Build a clean short label: "name, locality" or "street, city"
-    const parts = [
-      p.name || p.street,
-      p.locality || p.region,
-    ].filter(Boolean);
-    const label = parts.length > 0
-      ? parts.join(', ')
-      : (p.label || '').split(',').slice(0, 2).join(',').trim();
-
-    setQuery(label);
-    setSuggestions([]);
-    setOpen(false);
-    onChange(label, feature);
-  };
-
-  // Icon by layer / category
-  const icon = (props) => {
-    const layer = props.layer || '';
-    const name  = (props.name || '').toLowerCase();
-    if (layer === 'venue' && (name.includes('university') || name.includes('college') || name.includes('school'))) return '🎓';
-    if (layer === 'venue' && (name.includes('station') || name.includes('metro'))) return '🚉';
-    if (layer === 'venue' && name.includes('hospital')) return '🏥';
-    if (layer === 'venue' && (name.includes('mall') || name.includes('market'))) return '🛍️';
-    if (['venue','address'].includes(layer)) return '📍';
-    if (['locality','borough','localadmin'].includes(layer)) return '🏙️';
-    if (['neighbourhood','suburb'].includes(layer)) return '🏘️';
-    return '📍';
-  };
-
-  return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
-      {/* Input row */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px',
-        background: focused ? 'rgba(245,158,11,0.04)' : 'transparent',
-        transition: 'background 0.15s',
-      }}>
-        <div style={{
-          width: 10, height: 10, borderRadius: '50%', background: dotColor, flexShrink: 0,
-          boxShadow: focused ? `0 0 0 3px ${dotColor}28` : 'none',
-          transition: 'box-shadow 0.2s',
-        }} />
-        <input
-          type="text"
-          placeholder={placeholder}
-          value={query}
-          required={required}
-          onChange={e => { setQuery(e.target.value); }}
-          onFocus={() => { setFocused(true); if (suggestions.length > 0) setOpen(true); }}
-          style={{
-            flex: 1, background: 'transparent', border: 'none', outline: 'none',
-            color: '#f9fafb', fontFamily: "'DM Sans', sans-serif", fontSize: 14,
-          }}
-        />
-        {loading && (
-          <div style={{
-            width: 14, height: 14, borderRadius: '50%',
-            border: '2px solid rgba(245,158,11,0.25)', borderTopColor: '#F59E0B',
-            animation: 'rsSpin 0.7s linear infinite', flexShrink: 0,
-          }} />
-        )}
-      </div>
-
-      {/* Dropdown */}
-      {open && suggestions.length > 0 && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000,
-          background: '#111827',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: '0 0 14px 14px',
-          boxShadow: '0 20px 56px rgba(0,0,0,0.65)',
-          overflow: 'hidden',
-          maxHeight: 300,
-          overflowY: 'auto',
-        }}>
-          {suggestions.map((feat, i) => {
-            const p = feat.properties || {};
-            const name     = p.name || p.street || p.label?.split(',')?.[0] || '';
-            const sub      = [p.locality, p.region].filter(Boolean).join(', ');
-            const distance = p.distance ? `${(p.distance / 1000).toFixed(1)} km` : '';
-
-            return (
-              <button
-                key={feat.properties?.id || i}
-                onMouseDown={e => { e.preventDefault(); select(feat); }}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '11px 16px', background: 'none', border: 'none',
-                  cursor: 'pointer', textAlign: 'left',
-                  borderBottom: i < suggestions.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,158,11,0.07)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'none'}
-              >
-                <span style={{ fontSize: 18, flexShrink: 0, lineHeight: 1 }}>{icon(p)}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{
-                    color: '#f9fafb', fontSize: 13, fontWeight: 500,
-                    fontFamily: "'DM Sans', sans-serif",
-                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}>{name}</p>
-                  {sub && (
-                    <p style={{
-                      color: '#6b7280', fontSize: 11, fontFamily: "'DM Sans', sans-serif",
-                      marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    }}>{sub}</p>
-                  )}
-                </div>
-                {distance && (
-                  <span style={{ fontSize: 11, color: '#4b5563', fontFamily: "'DM Sans', sans-serif", flexShrink: 0 }}>
-                    {distance}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-
-          {/* ORS attribution */}
-          <div style={{
-            padding: '7px 16px', background: 'rgba(255,255,255,0.02)',
-            display: 'flex', alignItems: 'center', gap: 6,
-            borderTop: '1px solid rgba(255,255,255,0.05)',
-          }}>
-            <span style={{ fontSize: 10, color: '#374151', fontFamily: "'DM Sans', sans-serif" }}>
-              © OpenRouteService · OpenStreetMap contributors
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 // ─── App root ─────────────────────────────────────────────────────────────────
 const App = () => {
   const [user, setUser] = useState(null);
@@ -1315,17 +1160,14 @@ const App = () => {
 
   useEffect(() => { injectFonts(); checkAuth(); }, []);
 
-  const showNotif = useCallback((message, type='success') => {
-    setNotif({ message, type });
-  }, []);
+  const showNotif = useCallback((message, type='success') => { setNotif({ message, type }); }, []);
 
   const checkAuth = async () => {
     const token = localStorage.getItem('token');
     if (token) {
       try {
         const res = await api.get('/auth/me');
-        setUser(res.data.user);
-        setPage('dashboard');
+        setUser(res.data.user); setPage('dashboard');
       } catch { localStorage.removeItem('token'); }
     }
     setLoading(false);
@@ -1362,8 +1204,7 @@ const App = () => {
 
   if (loading) {
     return (
-      <div style={{ minHeight:'100vh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center',
-        fontFamily:"'DM Sans',sans-serif" }}>
+      <div style={{ minHeight:'100vh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:20 }}>
           <div style={{ width:40, height:40, borderRadius:11, background:C.accent, display:'flex', alignItems:'center', justifyContent:'center' }}>
             <Car size={22} color="#000" />
@@ -1406,7 +1247,6 @@ const LandingPage = ({ setPage }) => {
 
   return (
     <div style={{ background:C.bg, minHeight:'100vh' }}>
-      {/* Nav */}
       <nav style={{ position:'fixed', top:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:1200,
         zIndex:100, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 24px',
         background: scrolled ? 'rgba(10,12,20,0.96)' : 'transparent',
@@ -1418,8 +1258,6 @@ const LandingPage = ({ setPage }) => {
           <Btn onClick={() => setPage('signup')} variant="primary" style={{ padding:'9px 18px' }}>Get Started</Btn>
         </div>
       </nav>
-
-      {/* Hero */}
       <section style={{ minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center',
         justifyContent:'center', padding:'100px 24px 60px', position:'relative', overflow:'hidden' }}>
         <div style={{ position:'absolute', inset:0, background:'radial-gradient(ellipse 80% 60% at 50% 0%, rgba(245,158,11,0.1) 0%, transparent 70%)', pointerEvents:'none' }} />
@@ -1427,13 +1265,11 @@ const LandingPage = ({ setPage }) => {
           <div style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 14px',
             borderRadius:50, background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.2)',
             fontSize:12, color:C.accent, fontWeight:500, marginBottom:24 }}>
-            <Zap size={12} />
-            <span>India's Smartest Carpool Network</span>
+            <Zap size={12} /><span>India's Smartest Carpool Network</span>
           </div>
           <h1 style={{ fontFamily:"'Syne',sans-serif", fontWeight:800,
             fontSize:'clamp(38px, 7vw, 68px)', lineHeight:1.08, color:C.text, marginBottom:20 }}>
-            Your commute,<br />
-            <span style={{ color:C.accent }}>shared smarter.</span>
+            Your commute,<br /><span style={{ color:C.accent }}>shared smarter.</span>
           </h1>
           <p style={{ fontSize:'clamp(15px, 2vw, 18px)', color:C.muted, lineHeight:1.7, marginBottom:36, maxWidth:480, margin:'0 auto 36px' }}>
             Match with verified classmates & colleagues going your way. Save money, cut emissions, build community.
@@ -1442,15 +1278,11 @@ const LandingPage = ({ setPage }) => {
             <Btn onClick={() => setPage('signup')} variant="primary" style={{ padding:'14px 28px', fontSize:16 }}>
               Start Sharing <ArrowRight size={18} />
             </Btn>
-            <Btn onClick={() => setPage('login')} variant="ghost" style={{ padding:'14px 28px', fontSize:16 }}>
-              Sign In
-            </Btn>
+            <Btn onClick={() => setPage('login')} variant="ghost" style={{ padding:'14px 28px', fontSize:16 }}>Sign In</Btn>
           </div>
         </div>
-        {/* Stats card */}
         <div style={{ position:'relative', zIndex:1, marginTop:48, background:C.surface,
-          border:`1px solid ${C.border}`, borderRadius:C.r, padding:'20px 28px',
-          width:'100%', maxWidth:480 }}>
+          border:`1px solid ${C.border}`, borderRadius:C.r, padding:'20px 28px', width:'100%', maxWidth:480 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             {[
               { val:'12.5k kg', lbl:'CO₂ saved', color:C.green },
@@ -1465,8 +1297,6 @@ const LandingPage = ({ setPage }) => {
           </div>
         </div>
       </section>
-
-      {/* How it works */}
       <section style={{ padding:'clamp(48px,8vw,96px) 24px', maxWidth:1100, margin:'0 auto' }}>
         <p style={{ fontSize:12, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:C.accent, marginBottom:12, fontFamily:"'DM Sans',sans-serif" }}>Simple process</p>
         <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'clamp(26px,4vw,40px)', color:C.text, marginBottom:40 }}>How RideShare works</h2>
@@ -1486,8 +1316,6 @@ const LandingPage = ({ setPage }) => {
           ))}
         </div>
       </section>
-
-      {/* Features */}
       <section style={{ padding:'clamp(48px,8vw,96px) 24px', background:C.surface }}>
         <p style={{ fontSize:12, fontWeight:600, letterSpacing:'0.1em', textTransform:'uppercase', color:C.accent, marginBottom:12, fontFamily:"'DM Sans',sans-serif", textAlign:'center' }}>Why RideShare</p>
         <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:'clamp(26px,4vw,40px)', color:C.text, marginBottom:40, textAlign:'center' }}>Built for Indian commuters</h2>
@@ -1508,8 +1336,6 @@ const LandingPage = ({ setPage }) => {
           ))}
         </div>
       </section>
-
-      {/* CTA */}
       <section style={{ padding:'clamp(48px,8vw,96px) 24px', textAlign:'center',
         background:'radial-gradient(ellipse 60% 80% at 50% 50%, rgba(245,158,11,0.08) 0%, transparent 70%)' }}>
         <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:'clamp(26px,4vw,40px)', color:C.text, marginBottom:14 }}>
@@ -1520,7 +1346,6 @@ const LandingPage = ({ setPage }) => {
           Create free account <ArrowRight size={18} />
         </Btn>
       </section>
-
       <footer style={{ padding:'40px 24px', borderTop:`1px solid ${C.border}`, textAlign:'center',
         display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
         <Logo />
@@ -1562,8 +1387,7 @@ const AuthPage = ({ type, setPage, setUser, showNotif }) => {
     try {
       const res = await api.post(`/auth/${isLogin ? 'login' : 'signup'}`, form);
       localStorage.setItem('token', res.data.token);
-      setUser(res.data.user);
-      setPage('dashboard');
+      setUser(res.data.user); setPage('dashboard');
       showNotif(`Welcome${isLogin?' back':''}, ${res.data.user.name}! 🎉`);
     } catch (err) {
       showNotif(err.response?.data?.error || 'Something went wrong', 'error');
@@ -1579,7 +1403,6 @@ const AuthPage = ({ type, setPage, setUser, showNotif }) => {
           fontFamily:"'DM Sans',sans-serif", fontSize:14, padding:'8px 12px' }}>
         <ChevronLeft size={18} /> Back
       </button>
-
       <div style={{ width:'100%', maxWidth:420, background:C.surface, border:`1px solid ${C.border}`,
         borderRadius:C.r+4, padding:'clamp(24px,5vw,40px)', boxShadow:'0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ marginBottom:28 }}>
@@ -1591,7 +1414,6 @@ const AuthPage = ({ type, setPage, setUser, showNotif }) => {
             {isLogin ? 'Sign in to continue' : "Join your org's commute network"}
           </p>
         </div>
-
         <form onSubmit={submit} style={{ display:'flex', flexDirection:'column', gap:13 }}>
           {!isLogin && (
             <>
@@ -1640,7 +1462,7 @@ const AuthPage = ({ type, setPage, setUser, showNotif }) => {
           {!isLogin && (
             <div style={{ padding:'10px 14px', borderRadius:C.rxs, background:'rgba(96,165,250,0.08)', border:'1px solid rgba(96,165,250,0.15)' }}>
               <p style={{ color:C.blue, fontSize:11, fontFamily:"'DM Sans',sans-serif", lineHeight:1.5 }}>
-                📌 After signing up, upload your organisation ID card to activate your account. OTP verification via email/mobile coming soon.
+                📌 After signing up, upload your organisation ID card to activate your account.
               </p>
             </div>
           )}
@@ -1652,7 +1474,6 @@ const AuthPage = ({ type, setPage, setUser, showNotif }) => {
             {loading ? <><Loader size={15} style={{ animation:'rsSpin 0.8s linear infinite' }} />Please wait…</> : (isLogin ? 'Sign In' : 'Create Account')}
           </button>
         </form>
-
         <p style={{ marginTop:20, textAlign:'center', fontSize:13, color:C.muted, fontFamily:"'DM Sans',sans-serif" }}>
           {isLogin ? "New here? " : "Already have an account? "}
           <button onClick={() => setPage(isLogin ? 'signup' : 'login')}
@@ -1731,7 +1552,6 @@ const Dashboard = ({ user, logout, showNotif, setUser, socketNotifs, refreshUser
 
   return (
     <div style={{ background:C.bg, minHeight:'100vh', display:'flex', flexDirection:'column', maxWidth:768, margin:'0 auto' }}>
-      {/* Header */}
       <header style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
         padding:'18px 16px 14px', borderBottom:`1px solid ${C.border}`,
         position:'sticky', top:0, background:C.bg, zIndex:50, backdropFilter:'blur(8px)' }}>
@@ -1760,12 +1580,9 @@ const Dashboard = ({ user, logout, showNotif, setUser, socketNotifs, refreshUser
         </div>
       </header>
 
-      {/* Verification banner */}
       <VerifBanner user={user} onUpload={() => setShowIdUpload(true)} />
 
-      {/* Stats strip */}
-      <div style={{ display:'flex', padding:'12px 16px', background:C.surface,
-        borderBottom:`1px solid ${C.border}`, gap:0 }}>
+      <div style={{ display:'flex', padding:'12px 16px', background:C.surface, borderBottom:`1px solid ${C.border}`, gap:0 }}>
         <MiniStat icon={<Leaf size={13} color={C.green} />} val={`${(user.carbonSaved||0).toFixed?.(1)??0}kg`} lbl="CO₂" />
         <div style={{ width:1, background:C.border, alignSelf:'stretch', margin:'0 4px' }} />
         <MiniStat icon={<Car size={13} color={C.blue} />} val={user.ridesCompleted||0} lbl="Rides" />
@@ -1775,9 +1592,7 @@ const Dashboard = ({ user, logout, showNotif, setUser, socketNotifs, refreshUser
         <MiniStat icon={<Award size={13} color={C.purple} />} val={`#${Math.floor(Math.random()*50)+1}`} lbl="Rank" />
       </div>
 
-      {/* Scrollable content */}
       <main style={{ flex:1, overflowY:'auto', padding:'16px 16px 100px' }}>
-        {/* Tab pills (visible on all sizes) */}
         <div style={{ display:'flex', gap:8, marginBottom:16, overflowX:'auto', paddingBottom:4 }}>
           {[{k:'find',l:'Find Ride'},{k:'offer',l:'Offer Ride'},{k:'myrides',l:'My Rides'}].map(t => (
             <button key={t.k} onClick={() => setTab(t.k)}
@@ -1791,24 +1606,23 @@ const Dashboard = ({ user, logout, showNotif, setUser, socketNotifs, refreshUser
           ))}
         </div>
 
-        {/* Find rides */}
+        {/* ── Find rides ── */}
         {tab === 'find' && (
           <div>
-            {/* Search box */}
-            <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, overflow:'hidden', marginBottom:16 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px' }}>
-                <div style={{ width:10, height:10, borderRadius:'50%', background:C.green, flexShrink:0 }} />
-                <input placeholder="From — Pickup point" value={filters.from}
-                  onChange={e => setFilters(f => ({...f,from:e.target.value}))}
-                  style={{ flex:1, background:'transparent', border:'none', outline:'none', color:C.text, fontFamily:"'DM Sans',sans-serif", fontSize:14 }} />
-              </div>
+            <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:C.r, overflow:'visible', marginBottom:16, position:'relative' }}>
+              <LocationInput
+                placeholder="From — Pickup point"
+                value={filters.from}
+                dotColor={C.green}
+                onChange={name => setFilters(f => ({ ...f, from: name }))}
+              />
               <div style={{ height:1, background:C.border, marginLeft:38 }} />
-              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px' }}>
-                <div style={{ width:10, height:10, borderRadius:'50%', background:C.accent, flexShrink:0 }} />
-                <input placeholder="To — Destination" value={filters.to}
-                  onChange={e => setFilters(f => ({...f,to:e.target.value}))}
-                  style={{ flex:1, background:'transparent', border:'none', outline:'none', color:C.text, fontFamily:"'DM Sans',sans-serif", fontSize:14 }} />
-              </div>
+              <LocationInput
+                placeholder="To — Destination"
+                value={filters.to}
+                dotColor={C.accent}
+                onChange={name => setFilters(f => ({ ...f, to: name }))}
+              />
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
                 padding:'10px 16px', borderTop:`1px solid ${C.border}`, background:'rgba(255,255,255,0.02)' }}>
                 <div style={{ display:'flex', gap:6 }}>
@@ -1831,7 +1645,6 @@ const Dashboard = ({ user, logout, showNotif, setUser, socketNotifs, refreshUser
                 </button>
               </div>
             </div>
-
             {ridesLoading
               ? <div style={{ display:'flex', justifyContent:'center', padding:'60px 0' }}><div style={{ width:32, height:32, borderRadius:'50%', border:`3px solid ${C.border}`, borderTopColor:C.accent, animation:'rsSpin 0.8s linear infinite' }} /></div>
               : rides.length === 0
@@ -1889,15 +1702,13 @@ const Dashboard = ({ user, logout, showNotif, setUser, socketNotifs, refreshUser
         )}
       </main>
 
-      {/* Bottom nav */}
       <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)',
         width:'100%', maxWidth:768, background:C.surface, borderTop:`1px solid ${C.border}`,
         display:'flex', zIndex:50, paddingBottom:'max(8px,env(safe-area-inset-bottom))' }}>
         {NAV.map(({ k, icon, label }) => (
           <button key={k} onClick={() => setTab(k)}
             style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-              gap:3, padding:'8px 0', background:'none', border:'none', cursor:'pointer',
-              position:'relative' }}>
+              gap:3, padding:'8px 0', background:'none', border:'none', cursor:'pointer', position:'relative' }}>
             {k === 'offer'
               ? <div style={{ width:42, height:42, borderRadius:13, background:C.accent,
                   display:'flex', alignItems:'center', justifyContent:'center', marginTop:-10,
@@ -1908,15 +1719,13 @@ const Dashboard = ({ user, logout, showNotif, setUser, socketNotifs, refreshUser
                   <span style={{ color: tab===k ? C.accent : C.faint, transition:'color 0.15s' }}>{icon}</span>
                   <span style={{ fontSize:10, fontFamily:"'DM Sans',sans-serif", fontWeight: tab===k ? 600 : 400,
                     color: tab===k ? C.accent : C.faint, transition:'color 0.15s' }}>{label}</span>
-                  {tab===k && <div style={{ position:'absolute', bottom:0, width:20, height:2,
-                    background:C.accent, borderRadius:2 }} />}
+                  {tab===k && <div style={{ position:'absolute', bottom:0, width:20, height:2, background:C.accent, borderRadius:2 }} />}
                 </>
             }
           </button>
         ))}
       </nav>
 
-      {/* Modals */}
       {showIdUpload && <IdUploadModal onClose={() => setShowIdUpload(false)} onSuccess={refreshUser} showNotif={showNotif} />}
       {reviewRide && <ReviewModal ride={reviewRide} onClose={() => setReviewRide(null)} showNotif={showNotif} />}
       {showNotifPanel && <NotifPanel notifs={socketNotifs} onClose={() => setShowNotifPanel(false)} />}
@@ -1931,7 +1740,6 @@ const GLOBAL_CSS = `
   input, textarea, select { color-scheme: dark; }
   input::placeholder, textarea::placeholder { color: #4b5563; }
   select option { background: #111827; color: #f9fafb; }
-
   @keyframes rsSpin { to { transform: rotate(360deg); } }
   @keyframes rsSlideDown {
     from { transform: translateX(-50%) translateY(-16px); opacity: 0; }
@@ -1941,17 +1749,11 @@ const GLOBAL_CSS = `
     0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
     40%           { transform: scale(1);   opacity: 1;   }
   }
-
   input[type="date"]::-webkit-calendar-picker-indicator,
-  input[type="time"]::-webkit-calendar-picker-indicator {
-    filter: invert(0.5);
-    cursor: pointer;
-  }
-
+  input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.5); cursor: pointer; }
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
-
   button:active:not(:disabled) { transform: scale(0.97); }
   a { -webkit-tap-highlight-color: transparent; }
 `;
