@@ -1104,7 +1104,7 @@ function useDebounce(value, delay) {
 }
 
 // ─── LocationInput ─────────────────────────────────────────────────────────────
-const ORS_FRONTEND_KEY = process.env.REACT_APP_ORS_API_KEY || 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImI5YTk2ZGVjMDE4OTQ3NmQ5NjdhODNiZjQwZWM1NzdlIiwiaCI6Im11cm11cjY0In0=';
+const ORS_FRONTEND_KEY = process.env.REACT_APP_ORS_API_KEY || '';
 
 const LocationInput = ({
   placeholder,
