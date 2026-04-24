@@ -712,20 +712,24 @@ const OfferRide = ({ user, showNotif, onSuccess }) => {
           ))}
         </div>
 
-        {/* From / To */}
-        <div style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.border}`, borderRadius:C.r, overflow:'hidden' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px' }}>
-            <div style={{ width:10, height:10, borderRadius:'50%', background:C.green, flexShrink:0 }} />
-            <input placeholder="From — Pickup point" value={form.from} onChange={e => set('from',e.target.value)} required
-              style={{ flex:1, background:'transparent', border:'none', outline:'none', color:C.text, fontFamily:"'DM Sans',sans-serif", fontSize:14 }} />
-          </div>
-          <div style={{ height:1, background:C.border, marginLeft:38 }} />
-          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px' }}>
-            <div style={{ width:10, height:10, borderRadius:'50%', background:C.accent, flexShrink:0 }} />
-            <input placeholder="To — Destination" value={form.to} onChange={e => set('to',e.target.value)} required
-              style={{ flex:1, background:'transparent', border:'none', outline:'none', color:C.text, fontFamily:"'DM Sans',sans-serif", fontSize:14 }} />
-          </div>
-        </div>
+        {/* From / To with autocomplete */}
+<div style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${C.border}`, borderRadius:C.r, overflow:'visible', position:'relative' }}>
+  <LocationInput
+    placeholder="From — Pickup point"
+    value={form.from}
+    dotColor={C.green}
+    required
+    onChange={(name) => set('from', name)}
+  />
+  <div style={{ height:1, background:C.border, marginLeft:38 }} />
+  <LocationInput
+    placeholder="To — Destination"
+    value={form.to}
+    dotColor={C.accent}
+    required
+    onChange={(name) => set('to', name)}
+  />
+</div>
 
         {/* Auto distance */}
         <button type="button" onClick={fetchDist} disabled={distLoading}
@@ -1377,7 +1381,7 @@ const App = () => {
   }
 
   return (
-    <div style={{ fontFamily:"'DM Sans',sans-serif", background:C.bg, color:C.text, minHeight:'100vh', overflowX:'hidden' }}>
+    <div style={{ fontFamily:"'DM Sans',sans-serif", background:C.bg, color:C.text, minHeight:'100vh', overflowX:'visible' }}>
       <style>{GLOBAL_CSS}</style>
       <Toast n={notif} onClose={() => setNotif(null)} />
       {page === 'landing'   && <LandingPage setPage={setPage} />}
