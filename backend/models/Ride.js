@@ -60,6 +60,19 @@ const rideSchema = new mongoose.Schema({
   // Review tracking
   reviewsGiven: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 
+  // Payment tracking
+  paymentStatus: {
+    type: String,
+    enum: ['not_required', 'pending', 'partial', 'completed'],
+    default: 'not_required',
+  },
+  acceptedPayments: [{
+    type: String,
+    enum: ['cash', 'upi'],
+    default: 'cash',
+  }],
+  driverUpiId: { type: String, default: null },
+
   createdAt: { type: Date, default: Date.now },
 });
 

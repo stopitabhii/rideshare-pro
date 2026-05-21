@@ -108,6 +108,7 @@ exports.uploadIdCard = async (req, res) => {
     user.idCardPublicId = result.public_id;
     user.verificationStatus = 'under_review';
     user.verificationNote = null;
+    user.idCardUploadedAt = new Date();
     await user.save();
 
     res.json({
@@ -234,6 +235,7 @@ function _publicUser(user) {
     ridesCompleted: user.ridesCompleted,
     verificationStatus: user.verificationStatus,
     verificationNote: user.verificationNote,
-    trustedContacts: user.trustedContacts
+    trustedContacts: user.trustedContacts,
+    badges: user.badges || [],
   };
 }

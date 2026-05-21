@@ -423,15 +423,46 @@ exports.getRides = async (req, res) => {
   }
 };
 
-// ─── Org leaderboard ──────────────────────────────────────────────────────────
+// ─── Org leaderboard (weighted scoring) ───────────────────────────────────────
 exports.getOrgLeaderboard = async (req, res) => {
   try {
     const { organization } = req.params;
 
     const users = await User.find({ organization, verificationStatus: 'verified' })
-      .select('name rating totalRatings carbonSaved ridesCompleted role')
-      .sort({ ridesCompleted: -1, rating: -1 })
-      .limit(20);
+      .select('name rating totalRatings carbonSaved ridesCompleted role badges')
+      .limit(50);
+
+    // Compute trust score and assign badges dynamically
+    const enriched = users.map(u => {
+      const trustScore =
+        (u.ridesCompleted || 0) * 10 +
+        (u.rating || 5) * 20 +
+        (u.carbonSaved || 0) * 2 +
+        (u.totalRatings || 0) * 5;
+
+      // Dynamic badge assignment
+      const badges = [];
+      if (u.ridesCompleted >= 10)   badges.push('frequent_rider');
+      if (u.rating >= 4.5 && u.totalRatings >= 3) badges.push('top_rated');
+      if (u.carbonSaved >= 50)      badges.push('eco_warrior');
+      if (u.totalRatings >= 10)     badges.push('helpful');
+      if (u.verificationStatus === 'verified') badges.push('verified_pro');
+
+      return {
+        name: u.name,
+        rating: u.rating,
+        totalRatings: u.totalRatings,
+        carbonSaved: u.carbonSaved,
+        ridesCompleted: u.ridesCompleted,
+        role: u.role,
+        trustScore,
+        badges,
+      };
+    });
+
+    // Sort by trust score descending
+    enriched.sort((a, b) => b.trustScore - a.trustScore);
+    const leaderboard = enriched.slice(0, 20).map((u, i) => ({ ...u, rank: i + 1 }));
 
     const [orgStats] = await User.aggregate([
       { $match: { organization, verificationStatus: 'verified' } },
@@ -446,10 +477,7 @@ exports.getOrgLeaderboard = async (req, res) => {
 
     res.json({
       organization,
-      leaderboard: users.map((u, i) => ({
-        rank: i + 1, name: u.name, rating: u.rating, totalRatings: u.totalRatings,
-        carbonSaved: u.carbonSaved, ridesCompleted: u.ridesCompleted, role: u.role,
-      })),
+      leaderboard,
       orgStats: orgStats || { totalRides: 0, totalCarbon: 0, memberCount: 0, avgRating: 0 },
     });
   } catch (err) {

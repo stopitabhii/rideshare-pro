@@ -32,6 +32,14 @@ const userSchema = new mongoose.Schema({
     }
   ],
 
+  // Phase 3: Gamification & Trust
+  badges: [{
+    type: String,
+    enum: ['frequent_rider', 'top_rated', 'eco_warrior', 'verified_pro', 'early_adopter', 'helpful'],
+  }],
+
+  idCardUploadedAt: { type: Date, default: null },
+
   isActive: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now }
 });
@@ -39,6 +47,16 @@ const userSchema = new mongoose.Schema({
 // Virtual: can this user book/offer rides?
 userSchema.virtual('canRide').get(function () {
   return this.verificationStatus === 'verified';
+});
+
+// Virtual: composite trust score for leaderboard ranking
+userSchema.virtual('trustScore').get(function () {
+  return (
+    (this.ridesCompleted || 0) * 10 +
+    (this.rating || 5) * 20 +
+    (this.carbonSaved || 0) * 2 +
+    (this.totalRatings || 0) * 5
+  );
 });
 
 module.exports = mongoose.model('User', userSchema);
