@@ -281,13 +281,27 @@ const ReviewsModal = ({ userId, userName, onClose }) => {
 };
 
 /* ─── SOS Button (floating, hold-to-activate) ─────────────────────────────── */
-const SOSButton = ({ rides, user, notify }) => {
+const SOSButton = ({ user, notify }) => {
+  const [rides, setRides]       = useState([]);
   const [holding, setHolding]   = useState(false);
   const [progress, setProgress] = useState(0);
   const [sosSent, setSosSent]   = useState(false);
   const timer   = useRef(null);
   const progRef = useRef(null);
   const sock    = getSock();
+
+  // Fetch user's active rides
+  useEffect(() => {
+    const fetchRides = () => {
+      api.get('/rides/my-rides').then(r => {
+        const all = [...(r.data.offeredRides || []), ...(r.data.bookedRides || [])];
+        setRides(all);
+      }).catch(() => {});
+    };
+    fetchRides();
+    const interval = setInterval(fetchRides, 30000); // refresh every 30s
+    return () => clearInterval(interval);
+  }, []);
 
   // Find the first active ride for this user
   const activeRide = rides.find(r => ['scheduled','ongoing'].includes(r.status));
@@ -2179,7 +2193,7 @@ const MyRides = ({ user, notify }) => {
       )}
 
       {chatRide    && <ChatPanel     ride={chatRide}    currentUser={user} onClose={() => setChatRide(null)} />}
-      {locRide     && <LocationPanel ride={locRide}     currentUser={user} onClose={() => setLocRide(null)} notify={notify} />}
+      {locRide     && <MapPanel ride={locRide}     currentUser={user} onClose={() => setLocRide(null)} notify={notify} />}
       {feedbackRide && <FeedbackModal ride={feedbackRide} currentUserId={uid} onClose={() => setFeedbackRide(null)} notify={notify} />}
     </div>
   );
@@ -2233,21 +2247,33 @@ const Leaderboard = ({ user, notify }) => {
                 borderColor: i === 0 ? C.accent : C.border,
                 animation:'rsFadeUp 0.25s ease' }}>
               <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18,
-                color:C.muted, minWidth:36 }}>#{e.rank}</span>
+                color: i === 0 ? C.accent : i === 1 ? '#6B7280' : C.muted, minWidth:36 }}>
+                {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${e.rank}`}
+              </span>
               <div style={{ width:38, height:38, borderRadius:10, background:'#FFF8E7',
-                border:`1.5px solid ${C.accent}`, display:'flex', alignItems:'center',
+                border:`1.5px solid ${i === 0 ? C.accent : C.border}`, display:'flex', alignItems:'center',
                 justifyContent:'center', fontWeight:800, fontSize:16, flexShrink:0 }}>
                 {e.name[0]}
               </div>
-              <div style={{ flex:1 }}>
-                <p style={{ fontWeight:700, fontSize:15, fontFamily:"'DM Sans',sans-serif" }}>{e.name}</p>
-                <p style={{ fontSize:12, color:C.muted }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                  <p style={{ fontWeight:700, fontSize:15, fontFamily:"'DM Sans',sans-serif" }}>{e.name}</p>
+                  <TrustBadge rating={e.rating || 5} totalRatings={e.totalRatings || 0} />
+                </div>
+                <p style={{ fontSize:12, color:C.muted, marginTop:2 }}>
                   {(e.rating||5).toFixed(1)} ★ · {e.ridesCompleted} rides · {(e.carbonSaved||0).toFixed(1)} kg CO₂
                 </p>
+                {e.badges?.length > 0 && (
+                  <div style={{ marginTop:4 }}><BadgeChips badges={e.badges} /></div>
+                )}
               </div>
-              <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:22, color:C.text }}>
-                {e.ridesCompleted}
-              </span>
+              <div style={{ textAlign:'right', flexShrink:0 }}>
+                <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:20, color:C.accent }}>
+                  {e.trustScore || e.ridesCompleted}
+                </p>
+                <p style={{ fontSize:9, color:C.faint, fontWeight:700, letterSpacing:'0.05em',
+                  textTransform:'uppercase' }}>SCORE</p>
+              </div>
             </div>
           ))}
         </div>
@@ -2447,7 +2473,13 @@ const App = () => {
     notify('Logged out');
   };
 
-  const handleLogin = u => { setUser(u); setPage('app'); notify(`Welcome, ${u.name}! 👋`); };
+  const handleLogin = u => {
+    setUser(u); setPage('app'); notify(`Welcome, ${u.name}! 👋`);
+    // Auto-open ID upload for unverified users (mandatory verification)
+    if (u.verificationStatus === 'pending' || u.verificationStatus === 'rejected') {
+      setTimeout(() => setShowIdUpload(true), 800);
+    }
+  };
 
   // Socket setup
   useEffect(() => {
@@ -2500,6 +2532,7 @@ const App = () => {
           <Navbar user={user} tab={tab} setTab={setTab} logout={logout}
             notifCount={sockNotifs.length} onBell={() => setShowNotifs(v => !v)} />
           <VerifBanner user={user} onUpload={() => setShowIdUpload(true)} />
+          <SOSButton user={user} notify={notify} />
 
           <main style={{ maxWidth:1100, margin:'0 auto', padding:'28px 20px 110px',
             animation:'rsFadeUp 0.25s ease' }}>
