@@ -16,6 +16,10 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
+    if (user.isBanned) {
+      return res.status(403).json({ error: 'Your account has been suspended. Contact support.' });
+    }
+
     req.user = user;
     req.userId = decoded.id;
     next();

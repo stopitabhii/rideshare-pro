@@ -42,6 +42,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/rides', require('./routes/rides'));
 app.use('/api/reviews', require('./routes/reviews'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/reports', require('./routes/reports'));
 
 // Health check
 app.get('/', (req, res) => {
@@ -184,5 +186,9 @@ server.listen(PORT, () => {
   console.log('  - Live GPS Tracking');
   console.log('  - In-App Chat');
   console.log('  - Emergency SOS');
+  console.log('  - Admin Dashboard & Reports');
+  console.log('  - User Reporting & Blocking');
+  console.log('  - Women-Only Rides');
+  console.log('  - Ban System');
   console.log('');
 });

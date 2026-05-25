@@ -280,6 +280,84 @@ const ReviewsModal = ({ userId, userName, onClose }) => {
   );
 };
 
+/* ─── Report Modal ────────────────────────────────────────────────────────── */
+const ReportModal = ({ reportedUserId, reportedUserName, rideId, onClose, notify }) => {
+  const [reason, setReason] = useState('');
+  const [desc, setDesc]     = useState('');
+  const [busy, setBusy]     = useState(false);
+  const REASONS = [
+    { v: 'harassment', l: 'Harassment' },
+    { v: 'fake_profile', l: 'Fake Profile' },
+    { v: 'dangerous_driving', l: 'Dangerous Driving' },
+    { v: 'no_show', l: 'No Show' },
+    { v: 'inappropriate_behavior', l: 'Inappropriate Behavior' },
+    { v: 'fraud', l: 'Fraud / Scam' },
+    { v: 'other', l: 'Other' },
+  ];
+
+  const submit = async () => {
+    if (!reason) return notify('Select a reason', 'error');
+    setBusy(true);
+    try {
+      await api.post('/reports', { reportedUserId, rideId, reason, description: desc });
+      notify('Report submitted. We\'ll review within 24h.', 'success');
+      onClose();
+    } catch (e) {
+      notify(e.response?.data?.error || 'Failed to submit', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div className="rs-card" style={{ width: '100%', maxWidth: 420, padding: 28, animation: 'rsFadeUp 0.2s ease' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 18 }}>
+            🚩 Report {reportedUserName}
+          </p>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: C.muted }}>✕</button>
+        </div>
+
+        <p style={{ fontSize: 13, color: C.muted, marginBottom: 16 }}>
+          Help us keep the community safe. Reports are reviewed within 24 hours.
+        </p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+          {REASONS.map(r => (
+            <button key={r.v} onClick={() => setReason(r.v)}
+              style={{ padding: '10px 14px', borderRadius: 10, textAlign: 'left',
+                border: `1.5px solid ${reason === r.v ? C.red : C.border}`,
+                background: reason === r.v ? '#FEF2F2' : '#fff',
+                color: reason === r.v ? C.red : C.text,
+                fontFamily: "'DM Sans',sans-serif", fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              {r.l}
+            </button>
+          ))}
+        </div>
+
+        <textarea value={desc} onChange={e => setDesc(e.target.value)}
+          placeholder="Additional details (optional)" maxLength={500}
+          style={{ width: '100%', padding: '11px 14px', border: `1.5px solid ${C.border}`,
+            borderRadius: 10, fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: C.text,
+            background: '#fff', outline: 'none', resize: 'vertical', minHeight: 80,
+            marginBottom: 16 }} />
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="rs-btn-ghost" onClick={onClose}
+            style={{ flex: 1, padding: '12px' }}>Cancel</button>
+          <button onClick={submit} disabled={busy || !reason}
+            className="rs-btn-primary"
+            style={{ flex: 1, padding: '12px', background: C.red, border: `1.5px solid ${C.red}`, color: '#fff' }}>
+            {busy ? 'Submitting...' : 'Submit Report'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ─── SOS Button (floating, hold-to-activate) ─────────────────────────────── */
 const SOSButton = ({ user, notify }) => {
   const [rides, setRides]       = useState([]);
@@ -1106,6 +1184,10 @@ const Navbar = ({ user, tab, setTab, logout, notifCount, onBell }) => {
     { k:'find', l:'Find Rides' }, { k:'offer', l:'Offer Ride' },
     { k:'myrides', l:'Dashboard' }, { k:'leaderboard', l:'Leaderboard' },
   ];
+  if (user?.isAdmin) {
+    NAV.push({ k: 'admin', l: 'Admin 🛡️' });
+  }
+
   return (
     <header style={{ position:'sticky', top:0, zIndex:100, background:'#fff',
       borderBottom:`1.5px solid ${C.border}`, fontFamily:"'DM Sans',sans-serif" }}>
@@ -1167,39 +1249,46 @@ const Navbar = ({ user, tab, setTab, logout, notifCount, onBell }) => {
 };
 
 /* ─── Mobile bottom nav ───────────────────────────────────────────────────────── */
-const MobNav = ({ tab, setTab }) => (
-  <nav className="rs-mob" style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:100,
-    background:'#fff', borderTop:`1.5px solid ${C.border}`, display:'flex',
-    paddingBottom:'env(safe-area-inset-bottom,0)' }}>
-    {[
-      { k:'find',        icon:'🔍', l:'Find' },
-      { k:'offer',       icon:'➕', l:'Offer' },
-      { k:'myrides',     icon:'📊', l:'Trips' },
-      { k:'leaderboard', icon:'🏆', l:'Top'  },
-      { k:'profile',     icon:'👤', l:'Me'   },
-    ].map(n => (
-      <button key={n.k} onClick={() => setTab(n.k)}
-        style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center',
-          gap:2, padding:'8px 0', background:'none', border:'none', cursor:'pointer',
-          borderTop: tab===n.k ? `2.5px solid ${C.accent}` : '2.5px solid transparent',
-          transition:'border-color 0.15s' }}>
-        {n.k === 'offer' ? (
-          <div style={{ width:40, height:40, background:C.accent, borderRadius:12,
-            display:'flex', alignItems:'center', justifyContent:'center',
-            marginTop:-12, fontSize:18, boxShadow:`0 4px 14px ${C.accent}80` }}>
-            {n.icon}
-          </div>
-        ) : (
-          <>
-            <span style={{ fontSize:19 }}>{n.icon}</span>
-            <span style={{ fontSize:10, fontWeight:600, color: tab===n.k ? C.accentDk : C.faint,
-              fontFamily:"'DM Sans',sans-serif" }}>{n.l}</span>
-          </>
-        )}
-      </button>
-    ))}
-  </nav>
-);
+const MobNav = ({ tab, setTab, user }) => {
+  const ITEMS = [
+    { k:'find',        icon:'🔍', l:'Find' },
+    { k:'offer',       icon:'➕', l:'Offer' },
+    { k:'myrides',     icon:'📊', l:'Trips' },
+    { k:'leaderboard', icon:'🏆', l:'Top'  },
+  ];
+  if (user?.isAdmin) {
+    ITEMS.push({ k:'admin', icon:'🛡️', l:'Admin' });
+  }
+  ITEMS.push({ k:'profile',     icon:'👤', l:'Me'   });
+
+  return (
+    <nav className="rs-mob" style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:100,
+      background:'#fff', borderTop:`1.5px solid ${C.border}`, display:'flex',
+      paddingBottom:'env(safe-area-inset-bottom,0)' }}>
+      {ITEMS.map(n => (
+        <button key={n.k} onClick={() => setTab(n.k)}
+          style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center',
+            gap:2, padding:'8px 0', background:'none', border:'none', cursor:'pointer',
+            borderTop: tab===n.k ? `2.5px solid ${C.accent}` : '2.5px solid transparent',
+            transition:'border-color 0.15s' }}>
+          {n.k === 'offer' ? (
+            <div style={{ width:40, height:40, background:C.accent, borderRadius:12,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              marginTop:-12, fontSize:18, boxShadow:`0 4px 14px ${C.accent}80` }}>
+              {n.icon}
+            </div>
+          ) : (
+            <>
+              <span style={{ fontSize:19 }}>{n.icon}</span>
+              <span style={{ fontSize:10, fontWeight:600, color: tab===n.k ? C.accentDk : C.faint,
+                fontFamily:"'DM Sans',sans-serif" }}>{n.l}</span>
+            </>
+          )}
+        </button>
+      ))}
+    </nav>
+  );
+};
 
 /* ─── Stat card ──────────────────────────────────────────────────────────────── */
 const StatCard = ({ label, value, icon, accent }) => (
@@ -1312,7 +1401,7 @@ const Landing = ({ setPage }) => (
 /* ─── Auth pages ─────────────────────────────────────────────────────────────── */
 const AuthPage = ({ type, setPage, onLogin }) => {
   const isLogin = type === 'login';
-  const [f, setF] = useState({ name:'', email:'', password:'', phone:'', organization:'', role:'both' });
+  const [f, setF] = useState({ name:'', email:'', password:'', phone:'', organization:'', role:'both', gender:'' });
   const [errs, setErrs] = useState({});
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -1322,6 +1411,7 @@ const AuthPage = ({ type, setPage, onLogin }) => {
     if (!isLogin) {
       if (!f.name.trim())    e.name = 'Required';
       if (!f.organization)   e.organization = 'Select your university';
+      if (!f.gender)         e.gender = 'Select your gender';
     }
     if (!isValidEmail(f.email)) e.email = 'Enter a valid email (Gmail, Outlook, edu, etc.)';
     if (f.password.length < 8 || !/[0-9]/.test(f.password))
@@ -1411,6 +1501,21 @@ const AuthPage = ({ type, setPage, onLogin }) => {
                 ))}
               </div>
             </div>
+            <div>
+              <label style={{ display:'block', fontSize:11, fontWeight:700, textTransform:'uppercase',
+                letterSpacing:'0.07em', color:C.muted, marginBottom:5, fontFamily:"'DM Sans',sans-serif" }}>Gender</label>
+              <div style={{ display:'flex', gap:6 }}>
+                {[{v:'female',l:'👩 Female'},{v:'male',l:'👨 Male'},{v:'other',l:'Other'},{v:'prefer_not_to_say',l:'Skip'}].map(g => (
+                  <button key={g.v} type="button" onClick={() => set('gender', g.v)}
+                    style={{ flex:1, padding:'9px 0', borderRadius:8, border:`1.5px solid ${f.gender===g.v ? C.accent : C.border}`,
+                      background: f.gender===g.v ? '#FFF8E7' : '#fff', color: f.gender===g.v ? C.accentDk : C.muted,
+                      fontFamily:"'DM Sans',sans-serif", fontWeight:600, fontSize:12, cursor:'pointer' }}>
+                    {g.l}
+                  </button>
+                ))}
+              </div>
+              {errs.gender && <p style={{ color:C.red, fontSize:11, marginTop:3, fontFamily:"'DM Sans',sans-serif" }}>{errs.gender}</p>}
+            </div>
           </>}
           <Inp label="Email" fkey="email" type="email" placeholder="you@university.edu" />
           <Inp label="Password" fkey="password" type="password" placeholder="Min 8 chars, incl. a number" />
@@ -1447,6 +1552,8 @@ const FindRides = ({ user, notify }) => {
   const [type, setType]   = useState('all');
   const [loading, setLoading] = useState(false);
   const [reviewUser, setReviewUser] = useState(null); // { id, name }
+  const [womenOnly, setWomenOnly] = useState(false);
+  const [reportTarget, setReportTarget] = useState(null); // { id, name, rideId }
   const uid = user.id || user._id;
 
   const load = useCallback(async () => {
@@ -1456,14 +1563,15 @@ const FindRides = ({ user, notify }) => {
       if (from) p.append('from', from);
       if (to)   p.append('to', to);
       if (type !== 'all') p.append('type', type);
+      if (womenOnly) p.append('womenOnly', 'true');
       const r = await api.get(`/rides/search?${p}`);
       setRides(r.data.rides || []);
     } catch { notify('Failed to load rides', 'error'); }
     finally { setLoading(false); }
-  }, [from, to, type]);
+  }, [from, to, type, womenOnly, notify]);
 
   // Initial load + real-time updates via socket
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [womenOnly]);
   useEffect(() => {
     const sock = getSock();
     // Re-fetch whenever any ride is created or updated
@@ -1503,7 +1611,7 @@ const FindRides = ({ user, notify }) => {
           onChange={name => setTo(name)} />
         <div style={{ padding:'10px 14px', borderTop:`1px solid ${C.border}`,
           display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
-          <div style={{ display:'flex', gap:6 }}>
+          <div style={{ display:'flex', gap:6, alignItems:'center' }}>
             {[['all','All'],['carpool','🚗 Car'],['bikepool','🏍 Bike']].map(([v,l]) => (
               <button key={v} onClick={() => setType(v)}
                 style={{ padding:'6px 13px', borderRadius:50, border:`1.5px solid ${type===v ? C.accent : C.border}`,
@@ -1512,6 +1620,16 @@ const FindRides = ({ user, notify }) => {
                 {l}
               </button>
             ))}
+            {user.gender === 'female' && (
+              <button type="button" onClick={() => setWomenOnly(!womenOnly)}
+                style={{ padding:'6px 13px', borderRadius:50,
+                  border:`1.5px solid ${womenOnly ? '#EC4899' : C.border}`,
+                  background: womenOnly ? '#FDF2F8' : '#fff',
+                  color: womenOnly ? '#BE185D' : C.muted,
+                  fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                👩 Women Only
+              </button>
+            )}
           </div>
           <button className="rs-btn-primary" onClick={load} style={{ padding:'8px 20px', fontSize:13 }}>
             Search
@@ -1550,7 +1668,8 @@ const FindRides = ({ user, notify }) => {
             const driverReviews = ride.driver?.totalRatings || 0;
 
             return (
-              <div key={ride._id} className="rs-card" style={{ padding:18, transition:'transform 0.15s' }}
+              <div key={ride._id} className="rs-card" style={{ padding:18, transition:'transform 0.15s',
+                borderLeft: ride.womenOnly ? '4px solid #EC4899' : `1px solid ${C.border}` }}
                 onMouseEnter={e => e.currentTarget.style.transform='translateY(-1px)'}
                 onMouseLeave={e => e.currentTarget.style.transform='none'}>
                 {/* Top row */}
@@ -1571,7 +1690,15 @@ const FindRides = ({ user, notify }) => {
                             fontSize:11, color:C.accent, fontFamily:"'DM Sans',sans-serif" }}>
                           ★ {driverRating.toFixed(1)} ({driverReviews})
                         </button>
+                        {!isOwn && (
+                          <button onClick={() => setReportTarget({ id: ride.driver?._id, name: ride.driver?.name, rideId: ride._id })}
+                            style={{ background:'none', border:'none', cursor:'pointer', padding:0,
+                              fontSize:11, color:C.red, fontFamily:"'DM Sans',sans-serif", marginLeft:8 }}>
+                            🚩 Report
+                          </button>
+                        )}
                         <TrustBadge rating={driverRating} totalRatings={driverReviews} />
+                        {ride.womenOnly && <Tag label="👩 WOMEN ONLY" color="#EC4899" />}
                         {isPrivate && <Tag label="PRIVATE" color={C.purple} />}
                         {ride.recurring && <Tag label="RECURRING" color={C.blue} />}
                         {ride.type === 'bikepool' && ride.helmetProvided && <Tag label="⛑️ HELMET" color={C.green} />}
@@ -1657,6 +1784,12 @@ const FindRides = ({ user, notify }) => {
         <ReviewsModal userId={reviewUser.id} userName={reviewUser.name}
           onClose={() => setReviewUser(null)} />
       )}
+
+      {/* Report modal */}
+      {reportTarget && (
+        <ReportModal reportedUserId={reportTarget.id} reportedUserName={reportTarget.name} rideId={reportTarget.rideId}
+          onClose={() => setReportTarget(null)} notify={notify} />
+      )}
     </div>
   );
 };
@@ -1674,7 +1807,7 @@ const OfferRide = ({ user, notify, onSuccess }) => {
     type:'carpool', visibility:'public', from:'', to:'',
     date:'', time:'', seats:3, price:'', distance:'',
     recurring:false, days:[], helmetProvided:false,
-    acceptedPayments:['cash'], driverUpiId:'',
+    acceptedPayments:['cash'], driverUpiId:'', womenOnly:false,
   });
   const [busy, setBusy] = useState(false);
   const [distBusy, setDistBusy] = useState(false);
@@ -1725,7 +1858,7 @@ const OfferRide = ({ user, notify, onSuccess }) => {
       getSock().emit('new-ride', { org: user.organization });
       setF({ type:'carpool', visibility:'public', from:'', to:'', date:'', time:'',
         seats:3, price:'', distance:'', recurring:false, days:[], helmetProvided:false,
-        acceptedPayments:['cash'], driverUpiId:'' });
+        acceptedPayments:['cash'], driverUpiId:'', womenOnly:false });
       setDistAuto(false); setEstDuration(null);
       onSuccess?.();
     } catch (e) { notify(e.response?.data?.error || 'Failed to create ride', 'error'); }
@@ -1892,6 +2025,10 @@ const OfferRide = ({ user, notify, onSuccess }) => {
                 </button>
               ))}
             </div>
+          )}
+          {user.gender === 'female' && (
+            <Toggle on={f.womenOnly} onClick={() => set('womenOnly', !f.womenOnly)}
+              label="👩 Women-only ride" />
           )}
           {f.type === 'bikepool' && (
             <Toggle on={f.helmetProvided} onClick={() => set('helmetProvided', !f.helmetProvided)}
@@ -2287,6 +2424,28 @@ const Profile = ({ user, logout, notify, onUploadId, refreshUser }) => {
   const [contacts, setContacts] = useState(user.trustedContacts || []);
   const [editing, setEditing]   = useState(false);
   const [saving, setSaving]     = useState(false);
+  const [blockedUsers, setBlockedUsers] = useState([]);
+
+  const fetchBlockedUsers = useCallback(async () => {
+    try {
+      const res = await api.get('/reports/blocked');
+      setBlockedUsers(res.data.blockedUsers || []);
+    } catch { }
+  }, []);
+
+  useEffect(() => {
+    fetchBlockedUsers();
+  }, [fetchBlockedUsers]);
+
+  const handleUnblock = async (userId) => {
+    try {
+      await api.delete(`/reports/block/${userId}`);
+      notify('User unblocked', 'success');
+      fetchBlockedUsers();
+    } catch (e) {
+      notify(e.response?.data?.error || 'Failed to unblock', 'error');
+    }
+  };
 
   const saveContacts = async () => {
     if (!contacts.every(c => c.name && c.phone)) return notify('Each contact needs name & phone', 'error');
@@ -2418,6 +2577,32 @@ const Profile = ({ user, logout, notify, onUploadId, refreshUser }) => {
         ))}
       </div>
 
+      {/* Blocked Users Section */}
+      <div className="rs-card" style={{ padding:18, marginBottom:14 }}>
+        <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:15, marginBottom:2 }}>🚫 Blocked Users</p>
+        <p style={{ fontSize:12, color:C.muted, marginBottom: 12 }}>Users you have blocked from seeing your rides</p>
+        {blockedUsers.length === 0 ? (
+          <p style={{ fontSize:13, color:C.faint, fontStyle:'italic' }}>No blocked users</p>
+        ) : (
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            {blockedUsers.map(bu => (
+              <div key={bu._id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                background:'#F9F9F5', padding:'10px 14px', borderRadius:8, border:`1px solid ${C.border}` }}>
+                <div>
+                  <p style={{ fontSize:13, fontWeight:600 }}>{bu.name}</p>
+                  <p style={{ fontSize:11, color:C.muted }}>{bu.organization}</p>
+                </div>
+                <button onClick={() => handleUnblock(bu._id)}
+                  style={{ padding:'4px 12px', borderRadius:50, border:`1.5px solid ${C.border}`,
+                    background:'#fff', fontSize:11, fontWeight:700, cursor:'pointer', color:C.red }}>
+                  Unblock
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Coming soon */}
       <div style={{ background:'#EFF6FF', border:`1.5px solid #BFDBFE`, borderRadius:10,
         padding:'13px 16px', marginBottom:14 }}>
@@ -2434,6 +2619,443 @@ const Profile = ({ user, logout, notify, onUploadId, refreshUser }) => {
           display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
         ↪ Sign Out
       </button>
+    </div>
+  );
+};
+
+/* ─── Admin Dashboard ─────────────────────────────────────────────────────── */
+const AdminDashboard = ({ user, notify }) => {
+  const [subTab, setSubTab] = useState('overview'); // overview, users, reports, rides
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [rides, setRides] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [userPage, setUserPage] = useState(1);
+  const [userPages, setUserPages] = useState(1);
+  const [reportPage, setReportPage] = useState(1);
+  const [reportPages, setReportPages] = useState(1);
+  
+  // Modals & detail view states
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [showIdCard, setShowIdCard] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [reason, setReason] = useState('');
+  const [banReason, setBanReason] = useState('');
+  const [resolvingReport, setResolvingReport] = useState(null);
+  const [resolutionText, setResolutionText] = useState('');
+
+  // Fetch stats
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await api.get('/admin/stats');
+      setStats(res.data);
+    } catch (e) {
+      notify(e.response?.data?.error || 'Failed to fetch admin stats', 'error');
+    }
+  }, [notify]);
+
+  // Fetch users
+  const fetchUsers = useCallback(async (page = 1, search = '') => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/admin/users?page=${page}&limit=10${search ? `&search=${search}` : ''}`);
+      setUsers(res.data.users);
+      setUserPages(res.data.pages);
+      setUserPage(res.data.page);
+    } catch (e) {
+      notify(e.response?.data?.error || 'Failed to fetch users', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [notify]);
+
+  // Fetch reports
+  const fetchReports = useCallback(async (page = 1) => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/admin/reports?page=${page}&limit=10`);
+      setReports(res.data.reports);
+      setReportPages(res.data.pages);
+      setReportPage(res.data.page);
+    } catch (e) {
+      notify(e.response?.data?.error || 'Failed to fetch reports', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [notify]);
+
+  // Fetch rides for oversight
+  const fetchRides = useCallback(async (page = 1) => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/admin/rides?page=${page}&limit=15`);
+      setRides(res.data.rides);
+    } catch (e) {
+      notify(e.response?.data?.error || 'Failed to fetch rides', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    if (subTab === 'overview') fetchStats();
+    else if (subTab === 'users') fetchUsers(1);
+    else if (subTab === 'reports') fetchReports(1);
+    else if (subTab === 'rides') fetchRides(1);
+  }, [subTab, fetchStats, fetchUsers, fetchReports, fetchRides]);
+
+  // Actions
+  const handleVerify = async (userId, action) => {
+    setVerifying(true);
+    try {
+      await api.post(`/admin/verifications/${userId}`, { status: action === 'approve' ? 'verified' : 'rejected', rejectionReason: reason });
+      notify(`User verification ${action === 'approve' ? 'approved' : 'rejected'}`, 'success');
+      setSelectedUser(null);
+      setShowIdCard(false);
+      setReason('');
+      if (subTab === 'users') fetchUsers(userPage);
+      fetchStats();
+    } catch (e) {
+      notify(e.response?.data?.error || 'Verification action failed', 'error');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleBan = async (userId, ban) => {
+    try {
+      await api.put(`/admin/users/${userId}/ban`, { ban, reason: banReason });
+      notify(`User ${ban ? 'banned' : 'unbanned'} successfully`, 'success');
+      setBanReason('');
+      setSelectedUser(null);
+      if (subTab === 'users') fetchUsers(userPage);
+    } catch (e) {
+      notify(e.response?.data?.error || 'Action failed', 'error');
+    }
+  };
+
+  const handleResolveReport = async (action) => {
+    if (!resolvingReport) return;
+    try {
+      await api.put(`/admin/reports/${resolvingReport._id}/resolve`, { action, resolution: resolutionText });
+      notify('Report resolved', 'success');
+      setResolvingReport(null);
+      setResolutionText('');
+      fetchReports(reportPage);
+      fetchStats();
+    } catch (e) {
+      notify(e.response?.data?.error || 'Failed to resolve report', 'error');
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 1040, margin: '0 auto', padding: '24px 16px', minHeight: '80vh' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 32, color: C.text }}>Admin Panel 🛡️</h1>
+          <p style={{ fontSize: 14, color: C.muted }}>NCR Colleges Ride Sharing Moderation Hub</p>
+        </div>
+        {/* Sub-tab navigation */}
+        <div style={{ display: 'flex', gap: 6, background: '#EAEAE0', padding: 4, borderRadius: 10 }}>
+          {['overview', 'users', 'reports', 'rides'].map(t => (
+            <button key={t} onClick={() => setSubTab(t)}
+              style={{ padding: '8px 16px', borderRadius: 8, border: 'none',
+                background: subTab === t ? '#fff' : 'transparent',
+                color: subTab === t ? C.text : C.muted,
+                fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                transition: 'all 0.2s' }}>
+              {t.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && <p style={{ textAlign: 'center', padding: 24, fontSize: 14, color: C.muted }}>Loading data...</p>}
+
+      {/* OVERVIEW TAB */}
+      {!loading && subTab === 'overview' && stats && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 28 }}>
+            <div className="rs-card" style={{ padding: 20, textAlign: 'center' }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Total Users</p>
+              <p style={{ fontFamily: "'Syne',sans-serif", fontSize: 32, fontWeight: 800, color: C.text, margin: '8px 0' }}>{stats.totalUsers}</p>
+            </div>
+            <div className="rs-card" style={{ padding: 20, textAlign: 'center' }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Active Rides</p>
+              <p style={{ fontFamily: "'Syne',sans-serif", fontSize: 32, fontWeight: 800, color: C.accentDk, margin: '8px 0' }}>{stats.activeRides || 0}</p>
+            </div>
+            <div className="rs-card" style={{ padding: 20, textAlign: 'center', borderLeft: `4px solid ${C.accent}` }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Pending Approvals</p>
+              <p style={{ fontFamily: "'Syne',sans-serif", fontSize: 32, fontWeight: 800, color: C.accentDk, margin: '8px 0' }}>{stats.pendingVerifications}</p>
+            </div>
+            <div className="rs-card" style={{ padding: 20, textAlign: 'center', borderLeft: `4px solid ${C.red}` }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Open Reports</p>
+              <p style={{ fontFamily: "'Syne',sans-serif", fontSize: 32, fontWeight: 800, color: C.red, margin: '8px 0' }}>{stats.openReports}</p>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 20 }}>
+            <div className="rs-card" style={{ padding: 24 }}>
+              <h2 style={{ fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 700, marginBottom: 16 }}>🆕 Recent Registrations</h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {stats.recentUsers?.map(u => (
+                  <div key={u._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10, borderBottom: `1px solid ${C.border}` }}>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 700 }}>{u.name} ({u.gender ? (u.gender === 'female' ? '👩' : u.gender === 'male' ? '👨' : '👤') : '👤'})</p>
+                      <p style={{ fontSize: 11, color: C.muted }}>{u.email} · {u.organization}</p>
+                    </div>
+                    <span style={{ fontSize: 11, padding: '4px 8px', borderRadius: 12, fontWeight: 600,
+                      background: u.verificationStatus === 'verified' ? '#D1FAE5' : u.verificationStatus === 'under_review' ? '#FEF3C7' : '#F3F4F6',
+                      color: u.verificationStatus === 'verified' ? '#065F46' : u.verificationStatus === 'under_review' ? '#92400E' : '#374151' }}>
+                      {u.verificationStatus.replace('_', ' ')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* USERS TAB */}
+      {!loading && subTab === 'users' && (
+        <div className="rs-card" style={{ padding: 24, overflowX: 'auto' }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            <input type="text" placeholder="Search by name or email..."
+              onChange={e => fetchUsers(1, e.target.value)}
+              className="rs-input" style={{ maxWidth: 300 }} />
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: `2px solid ${C.border}`, textAlign: 'left' }}>
+                <th style={{ padding: 10 }}>User</th>
+                <th style={{ padding: 10 }}>College</th>
+                <th style={{ padding: 10 }}>Role</th>
+                <th style={{ padding: 10 }}>Reports</th>
+                <th style={{ padding: 10 }}>Status</th>
+                <th style={{ padding: 10 }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u._id} style={{ borderBottom: `1px solid ${C.border}`, background: u.isBanned ? '#FEF2F2' : 'transparent' }}>
+                  <td style={{ padding: 10 }}>
+                    <p style={{ fontWeight: 600 }}>{u.name} {u.isBanned && '🚫'}</p>
+                    <p style={{ fontSize: 11, color: C.muted }}>{u.email}</p>
+                  </td>
+                  <td style={{ padding: 10 }}>{u.organization}</td>
+                  <td style={{ padding: 10, textTransform: 'capitalize' }}>{u.role}</td>
+                  <td style={{ padding: 10, fontWeight: u.reportCount > 0 ? 700 : 400, color: u.reportCount > 0 ? C.red : C.text }}>{u.reportCount || 0}</td>
+                  <td style={{ padding: 10 }}>
+                    <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 12, fontWeight: 600,
+                      background: u.verificationStatus === 'verified' ? '#D1FAE5' : u.verificationStatus === 'under_review' ? '#FEF3C7' : '#F3F4F6',
+                      color: u.verificationStatus === 'verified' ? '#065F46' : u.verificationStatus === 'under_review' ? '#92400E' : '#374151' }}>
+                      {u.verificationStatus.replace('_', ' ')}
+                    </span>
+                  </td>
+                  <td style={{ padding: 10 }}>
+                    <button className="rs-btn-ghost" onClick={() => setSelectedUser(u)} style={{ padding: '6px 12px', fontSize: 12 }}>
+                      Inspect 🔍
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* User detail / inspect panel */}
+          {selectedUser && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(0,0,0,0.5)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div className="rs-card" style={{ width: '100%', maxWidth: 500, padding: 28, maxHeight: '90vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 18 }}>🛡️ Moderation: {selectedUser.name}</h3>
+                  <button onClick={() => { setSelectedUser(null); setShowIdCard(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18 }}>✕</button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20, fontSize: 13 }}>
+                  <div><p style={{ color: C.muted }}>Phone</p><p style={{ fontWeight: 600 }}>{selectedUser.phone || 'N/A'}</p></div>
+                  <div><p style={{ color: C.muted }}>Gender</p><p style={{ fontWeight: 600, textTransform: 'capitalize' }}>{selectedUser.gender || 'N/A'}</p></div>
+                  <div><p style={{ color: C.muted }}>Status</p><p style={{ fontWeight: 600 }}>{selectedUser.verificationStatus.toUpperCase()}</p></div>
+                  <div><p style={{ color: C.muted }}>Role</p><p style={{ fontWeight: 600, textTransform: 'capitalize' }}>{selectedUser.role}</p></div>
+                </div>
+
+                {selectedUser.verificationStatus === 'under_review' && (
+                  <div style={{ border: `1.5px dashed ${C.accent}`, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>College ID Verification Required</p>
+                    
+                    {!showIdCard ? (
+                      <button className="rs-btn-primary" onClick={() => setShowIdCard(true)} style={{ width: '100%', padding: 10, fontSize: 13, marginBottom: 8 }}>
+                        👁️ View Uploaded ID Card
+                      </button>
+                    ) : (
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>ID Document Secure Viewer:</p>
+                        <div style={{ width: '100%', height: 220, border: `1px solid ${C.border}`, borderRadius: 8, background: '#f5f5f5', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <img src={`https://rideshare-pro.onrender.com/api/admin/verifications/id-card/${selectedUser._id}`} 
+                            headers={{ Authorization: `Bearer ${localStorage.getItem('token')}` }}
+                            alt="College ID" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                            onError={(e) => { e.target.style.display = 'none'; e.target.outerHTML = '<p style="font-size:12px;color:#ef4444;padding:12px;text-align:center;">🔒 Secure authentication required. Double-click to load or link broken.</p>'; }} />
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => handleVerify(selectedUser._id, 'approve')} disabled={verifying}
+                        style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: '#10B981', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+                        Approve
+                      </button>
+                      <button onClick={() => { if(!reason) return notify('Provide a rejection reason', 'error'); handleVerify(selectedUser._id, 'reject'); }} disabled={verifying}
+                        style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: C.red, color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+                        Reject
+                      </button>
+                    </div>
+                    <input type="text" placeholder="Rejection note (required for Rejections)" value={reason} onChange={e => setReason(e.target.value)}
+                      className="rs-input" style={{ marginTop: 10, padding: 8, fontSize: 12 }} />
+                  </div>
+                )}
+
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Account Suspensions 🚫</p>
+                  {selectedUser.isBanned ? (
+                    <button onClick={() => handleBan(selectedUser._id, false)}
+                      style={{ width: '100%', padding: '10px', background: '#10B981', border: 'none', color: '#fff', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>
+                      🟢 Lift Suspension / Unban User
+                    </button>
+                  ) : (
+                    <div>
+                      <input type="text" placeholder="Reason for ban..." value={banReason} onChange={e => setBanReason(e.target.value)}
+                        className="rs-input" style={{ marginBottom: 8, padding: 8, fontSize: 12 }} />
+                      <button onClick={() => handleBan(selectedUser._id, true)}
+                        style={{ width: '100%', padding: '10px', background: C.red, border: 'none', color: '#fff', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>
+                        🚫 Suspend User (Ban Account)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* User Pagination */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginTop: 16 }}>
+            <button onClick={() => fetchUsers(userPage - 1)} disabled={userPage <= 1} className="rs-btn-ghost" style={{ padding: '6px 12px' }}>Prev</button>
+            <span style={{ fontSize: 13, alignSelf: 'center' }}>Page {userPage} of {userPages}</span>
+            <button onClick={() => fetchUsers(userPage + 1)} disabled={userPage >= userPages} className="rs-btn-ghost" style={{ padding: '6px 12px' }}>Next</button>
+          </div>
+        </div>
+      )}
+
+      {/* REPORTS TAB */}
+      {!loading && subTab === 'reports' && (
+        <div className="rs-card" style={{ padding: 24 }}>
+          <h2 style={{ fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 700, marginBottom: 16 }}>🚩 Open Moderation Reports</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {reports.length === 0 ? (
+              <p style={{ fontSize: 13, color: C.muted }}>No active reports.</p>
+            ) : (
+              reports.map(r => (
+                <div key={r._id} style={{ border: `1.5px solid ${r.status === 'pending' ? C.red : C.border}`, borderRadius: 10, padding: 18, background: r.status === 'pending' ? '#FFF5F5' : '#fff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: C.red, textTransform: 'uppercase', letterSpacing: '0.05em', background: '#FFE4E6', padding: '3px 8px', borderRadius: 4 }}>
+                        {r.reason.replace('_', ' ')}
+                      </span>
+                      {r.ride && <span style={{ fontSize: 11, color: C.muted, marginLeft: 8 }}>Ride: {r.ride.from} ➔ {r.ride.to}</span>}
+                    </div>
+                    <span style={{ fontSize: 11, color: C.muted }}>{new Date(r.createdAt).toLocaleString('en-IN')}</span>
+                  </div>
+
+                  <p style={{ fontSize: 13, color: C.text, margin: '8px 0', fontStyle: r.description ? 'normal' : 'italic' }}>
+                    {r.description ? `"${r.description}"` : 'No description provided.'}
+                  </p>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, borderTop: `1px solid ${C.border}`, paddingTop: 10, marginTop: 10, fontSize: 12 }}>
+                    <div>
+                      <p><strong>Reporter:</strong> {r.reporter?.name} ({r.reporter?.organization})</p>
+                      <p><strong>Reported:</strong> {r.reportedUser?.name} {r.reportedUser?.isBanned && '🚫 (Banned)'}</p>
+                    </div>
+
+                    {r.status === 'pending' && (
+                      <button onClick={() => setResolvingReport(r)} className="rs-btn-primary" style={{ padding: '6px 12px', fontSize: 12, background: C.red, border: `1px solid ${C.red}`, color: '#fff' }}>
+                        Take Action 🛠️
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Resolve Report Modal */}
+          {resolvingReport && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(0,0,0,0.5)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div className="rs-card" style={{ width: '100%', maxWidth: 420, padding: 28 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 16 }}>Resolve Report on {resolvingReport.reportedUser?.name}</h3>
+                  <button onClick={() => setResolvingReport(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18 }}>✕</button>
+                </div>
+                <input type="text" placeholder="Resolution action explanation..." value={resolutionText} onChange={e => setResolutionText(e.target.value)}
+                  className="rs-input" style={{ marginBottom: 16 }} />
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button onClick={() => handleResolveReport('dismiss')} className="rs-btn-ghost" style={{ padding: 10 }}>
+                    ⚪ Dismiss / No Violation
+                  </button>
+                  <button onClick={() => handleResolveReport('warn')}
+                    style={{ padding: 10, borderRadius: 8, border: 'none', background: C.accent, color: C.accentDk, fontWeight: 700, cursor: 'pointer' }}>
+                    🟡 Send Safety Warning
+                  </button>
+                  <button onClick={() => handleResolveReport('ban')}
+                    style={{ padding: 10, borderRadius: 8, border: 'none', background: C.red, color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+                    🚫 Suspend Account (Ban User)
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Report Pagination */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginTop: 16 }}>
+            <button onClick={() => fetchReports(reportPage - 1)} disabled={reportPage <= 1} className="rs-btn-ghost" style={{ padding: '6px 12px' }}>Prev</button>
+            <span style={{ fontSize: 13, alignSelf: 'center' }}>Page {reportPage} of {reportPages}</span>
+            <button onClick={() => fetchReports(reportPage + 1)} disabled={reportPage >= reportPages} className="rs-btn-ghost" style={{ padding: '6px 12px' }}>Next</button>
+          </div>
+        </div>
+      )}
+
+      {/* RIDES OVERVIEW TAB */}
+      {!loading && subTab === 'rides' && (
+        <div className="rs-card" style={{ padding: 24, overflowX: 'auto' }}>
+          <h2 style={{ fontFamily: "'Syne',sans-serif", fontSize: 18, fontWeight: 700, marginBottom: 16 }}>🚗 Active Campus Rides Oversight</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: `2px solid ${C.border}`, textAlign: 'left' }}>
+                <th style={{ padding: 10 }}>Driver</th>
+                <th style={{ padding: 10 }}>Route</th>
+                <th style={{ padding: 10 }}>Date & Time</th>
+                <th style={{ padding: 10 }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rides.map(r => (
+                <tr key={r._id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: 10 }}>
+                    <p style={{ fontWeight: 600 }}>{r.driver?.name}</p>
+                    <p style={{ fontSize: 11, color: C.muted }}>{r.driver?.organization}</p>
+                  </td>
+                  <td style={{ padding: 10 }}>{r.from} ➔ {r.to}</td>
+                  <td style={{ padding: 10 }}>{r.date} @ {r.time}</td>
+                  <td style={{ padding: 10, textTransform: 'capitalize', fontWeight: 600, color: r.status === 'cancelled' ? C.red : C.text }}>
+                    {r.status}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };
@@ -2542,9 +3164,10 @@ const App = () => {
             {tab === 'leaderboard' && <Leaderboard user={user} notify={notify} />}
             {tab === 'profile'     && <Profile     user={user} logout={logout} notify={notify}
               onUploadId={() => setShowIdUpload(true)} refreshUser={refreshUser} />}
+            {tab === 'admin' && user.isAdmin && <AdminDashboard user={user} notify={notify} />}
           </main>
 
-          <MobNav tab={tab} setTab={setTab} />
+          <MobNav tab={tab} setTab={setTab} user={user} />
         </>
       )}
     </div>

@@ -112,6 +112,14 @@ exports.createRide = async (req, res) => {
 
     const rideData = { ...req.body, driver: req.userId };
 
+    // Women-only ride enforcement
+    if (req.body.womenOnly) {
+      if (user.gender !== 'female') {
+        return res.status(403).json({ error: 'Only female users can create women-only rides' });
+      }
+      rideData.womenOnly = true;
+    }
+
     // Auto-calculate distance via ORS; fall back to manually entered value
     const ors = await getDistanceFromORS(rideData.from, rideData.to);
     if (ors) {
@@ -153,6 +161,13 @@ exports.searchRides = async (req, res) => {
     // Only show rides from the same org
     rides = rides.filter(r => r.driver?.organization === user.organization);
 
+    // Filter out rides from users the current user has blocked (and vice versa)
+    const blockedIds = (user.blockedUsers || []).map(b => b.toString());
+    rides = rides.filter(r => {
+      const driverId = r.driver?._id?.toString();
+      return !blockedIds.includes(driverId);
+    });
+
     const enriched = rides
       .map(r => ({ ...r.toObject(), availableSeats: r.seats - r.bookings.length }))
       .filter(r => r.availableSeats > 0);
@@ -181,6 +196,9 @@ exports.bookRide = async (req, res) => {
     if (ride.bookings.map(b => b.toString()).includes(userId)) return res.status(400).json({ error: 'Already booked' });
     if (ride.bookings.length >= ride.seats)      return res.status(400).json({ error: 'No seats available' });
     if (ride.driver.organization !== user.organization) return res.status(403).json({ error: 'Only org members can book this ride' });
+    if (ride.womenOnly && user.gender !== 'female') {
+      return res.status(403).json({ error: 'This ride is for women only' });
+    }
     if (ride.visibility === 'private')           return res.status(400).json({ error: 'This is a private ride — use the request endpoint.' });
 
     ride.bookings.push(userId);
@@ -224,6 +242,9 @@ exports.requestBooking = async (req, res) => {
     if (ride.bookings.map(b => b.toString()).includes(userId)) return res.status(400).json({ error: 'Already booked' });
     if (ride.pendingBookings.some(p => p.user.toString() === userId)) return res.status(400).json({ error: 'Request already sent' });
     if (ride.driver.organization !== user.organization) return res.status(403).json({ error: 'Only org members can request this ride' });
+    if (ride.womenOnly && user.gender !== 'female') {
+      return res.status(403).json({ error: 'This ride is for women only' });
+    }
 
     ride.pendingBookings.push({ user: userId, message: message || '' });
     await ride.save();

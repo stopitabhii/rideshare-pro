@@ -6,7 +6,7 @@ const { uploadToCloudinary, getSignedUrl, deleteFromCloudinary } = require('../c
 // ─── Register new user ────────────────────────────────────────────────────────
 exports.signup = async (req, res) => {
   try {
-    const { name, email, password, phone, organization, role } = req.body;
+    const { name, email, password, phone, organization, role, gender } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -22,6 +22,7 @@ exports.signup = async (req, res) => {
       phone,
       organization,
       role,
+      gender,
       verificationStatus: 'pending'
     });
 
@@ -237,5 +238,9 @@ function _publicUser(user) {
     verificationNote: user.verificationNote,
     trustedContacts: user.trustedContacts,
     badges: user.badges || [],
+    gender: user.gender,
+    isBanned: user.isBanned,
+    blockedUsers: user.blockedUsers,
+    isAdmin: user.isAdmin,
   };
 }

@@ -19,6 +19,7 @@ const rideSchema = new mongoose.Schema({
   recurring:       { type: Boolean, default: false },
   days:            [{ type: String, enum: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] }],
   helmetProvided:  { type: Boolean, default: false },
+  womenOnly:       { type: Boolean, default: false },
 
   // public  → any verified org-member can book instantly
   // private → passengers must REQUEST; driver approves/declines

@@ -40,13 +40,19 @@ const userSchema = new mongoose.Schema({
 
   idCardUploadedAt: { type: Date, default: null },
 
+  gender: { type: String, enum: ['male', 'female', 'other', 'prefer_not_to_say'], required: true },
+  isBanned: { type: Boolean, default: false },
+  blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  reportCount: { type: Number, default: 0 },
+  isAdmin: { type: Boolean, default: false },
+
   isActive: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now }
 });
 
 // Virtual: can this user book/offer rides?
 userSchema.virtual('canRide').get(function () {
-  return this.verificationStatus === 'verified';
+  return this.verificationStatus === 'verified' && !this.isBanned;
 });
 
 // Virtual: composite trust score for leaderboard ranking

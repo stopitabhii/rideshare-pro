@@ -1,0 +1,25 @@
+{
+  "short_name": "RideShare",
+  "name": "RideShare Pro — Campus Carpooling",
+  "description": "Share rides across NCR colleges. Save money, reduce carbon.",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#F59E0B",
+  "background_color": "#F5F5F0",
+  "orientation": "portrait",
+  "scope": "/"
+}
