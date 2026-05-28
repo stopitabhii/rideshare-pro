@@ -5,6 +5,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const connectDB = require('./config/db');
+const { startRideExpiryJob } = require('./jobs/rideExpiry');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,7 +23,12 @@ const io = socketIo(server, {
 
 app.set('io', io);
 
-connectDB();
+connectDB().then(() => {
+  startRideExpiryJob(io);
+}).catch(err => {
+  console.error('DB connect failed, expiry job not started:', err.message);
+});
+  
 
 app.use(cors({
   origin: [
@@ -177,6 +183,7 @@ server.listen(PORT, () => {
   console.log(`\nServer running on port ${PORT}`);
   console.log(`HTTP: http://localhost:${PORT}`);
   console.log(`WebSocket: ws://localhost:${PORT}\n`);
+  console.log(`Ride expiry job: every 5 min\n`);
   console.log('Features active:');
   console.log('  - ID Verification (Cloudinary)');
   console.log('  - Ratings & Reviews');
