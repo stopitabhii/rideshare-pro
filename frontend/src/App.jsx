@@ -1533,7 +1533,7 @@ const Landing = ({ setPage }) => (
       </section>
 
       <footer style={{ borderTop:`1.5px solid ${C.border}`, padding:'20px 24px', textAlign:'center' }}>
-        <p style={{ fontSize:12, color:C.faint }}>Made for NCR · RideShare © 2026</p>
+        <p style={{ fontSize:12, color:C.faint }}>For students. By students · RideShare © 2026</p>
       </footer>
     </section>
   </div>
