@@ -1475,8 +1475,8 @@ const Landing = ({ setPage }) => (
         </div>
         <h1 style={{ fontFamily:"'Fraunces',serif", fontWeight:900, lineHeight:1.05,
           fontSize:'clamp(40px,8vw,72px)', color:C.ink, marginBottom:20 }}>
-          Your campus<br/>
-          <em style={{ fontStyle:'italic', color:C.accent }}>commute, shared.</em>
+          Ride together.<br/>
+          <em style={{ fontStyle:'italic', color:C.accent }}>Save together.</em>
         </h1>
         <p style={{ fontSize:17, color:C.ink2, lineHeight:1.7, maxWidth:460, margin:'0 auto 36px' }}>
           Match with verified classmates going your way. Save money, cut emissions, build community.
