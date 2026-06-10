@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-/* ─── Font injection ─────────────────────────────────────────────────────── */
+/*font injection */
 const injectFonts = () => {
   if (document.getElementById('rs-fonts')) return;
   const l = document.createElement('link');
